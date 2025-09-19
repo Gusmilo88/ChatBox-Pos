@@ -27,7 +27,7 @@ router.post('/simulate/message', async (req, res) => {
     if (!validationResult.success) {
       return res.status(400).json({
         error: 'Datos inválidos',
-        details: validationResult.error.errors
+        details: validationResult.error.issues
       });
     }
 
@@ -93,7 +93,7 @@ router.post('/ai', async (req, res) => {
     if (!validationResult.success) {
       return res.status(400).json({
         error: 'Datos inválidos',
-        details: validationResult.error.errors
+        details: validationResult.error.issues
       });
     }
 

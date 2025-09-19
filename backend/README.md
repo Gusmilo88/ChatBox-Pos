@@ -268,6 +268,82 @@ curl -X POST http://localhost:3001/webhook/whatsapp `
   }'
 ```
 
+## 🧪 QA & Smoke Tests
+
+### Variables de Entorno para Tests
+```powershell
+# Variables opcionales para smoke tests
+$env:API_BASE="http://localhost:3001"
+$env:API_KEY="TU_API_KEY_SI_PROTECT_API=1"
+$env:FROM_A="+5491100000002"
+$env:FROM_B="+5491100000003"
+$env:CUIT_TEST="20123456786"
+```
+
+### Comandos de Smoke Tests
+```bash
+# Smoke test completo
+npm run smoke
+
+# Solo tests mínimos (health + hola + CUIT + 1/2)
+npm run smoke:quick
+
+# Solo webhook de WhatsApp
+npm run smoke:wa
+```
+
+### Checklist Manual
+Ver `docs/QA-checklist.md` para lista completa de verificación manual que cubre:
+- ✅ Entorno y configuración
+- ✅ Endpoints básicos (/health, /api/simulate/message)
+- ✅ Flujos de FSM (START, CLIENTE, NO_CLIENTE)
+- ✅ Seguridad (API key, CORS, Rate limiting, PII masking)
+- ✅ Datos (Excel/Firestore)
+- ✅ WhatsApp webhook (verificación y mensajes)
+- ✅ IA (con/sin OpenAI API key)
+- ✅ Logs y performance
+
+### Tests Automáticos
+Los smoke tests verifican automáticamente:
+- **Health Check**: GET /health → {ok: true}
+- **FSM Flows**: 
+  - "hola" → saludo
+  - CUIT válido → CLIENTE_MENU
+  - Opciones 1/2 (saldo/comprobantes)
+  - Flujo lead completo
+- **WhatsApp Webhook**:
+  - GET verificación → challenge
+  - POST mensaje → procesamiento FSM
+- **Seguridad**: API key, CORS, rate limiting
+
+### Ejemplo de Uso
+```bash
+# 1. Levantar servidor
+npm run dev
+
+# 2. En otra terminal, ejecutar tests
+npm run smoke
+
+# 3. Ver resultados
+✔ PASS (45ms) Health Check
+✔ PASS (123ms) Menu Reset
+✔ PASS (89ms) Hola Response
+✔ PASS (156ms) CUIT Authentication
+✔ PASS (134ms) Saldo Query
+✔ PASS (142ms) Comprobantes Query
+✔ PASS (234ms) Lead Flow
+✔ PASS (67ms) WhatsApp Verification
+✔ PASS (98ms) WhatsApp Message
+
+📊 Test Summary
+✔ Passed: 9
+✖ Failed: 0
+Total: 9 tests
+Duration: 1088ms
+
+🎉 All tests passed!
+```
+
 ## 🔥 Conexión a Firestore (producción)
 
 El backend puede conectarse a Firestore real para leer datos de clientes.

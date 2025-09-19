@@ -61,7 +61,7 @@ router.post('/', (req, res) => {
         // Validar estructura del webhook
         const validationResult = WhatsAppWebhookSchema.safeParse(req.body);
         if (!validationResult.success) {
-            logger_1.default.warn('Invalid WhatsApp webhook structure', { errors: validationResult.error.errors });
+            logger_1.default.warn('Invalid WhatsApp webhook structure', { errors: validationResult.error.issues });
             return res.status(400).json({ error: 'invalid_webhook_structure' });
         }
         const data = validationResult.data;
