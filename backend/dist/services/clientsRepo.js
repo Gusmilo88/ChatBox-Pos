@@ -37,10 +37,49 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ClientsRepository = void 0;
+exports.existsByCuit = existsByCuit;
+exports.getSaldo = getSaldo;
+exports.getUltimosComprobantes = getUltimosComprobantes;
 const XLSX = __importStar(require("xlsx"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const logger_1 = __importDefault(require("../libs/logger"));
+const MODE = String(process.env.USE_FIREBASE || '0');
+// --- Excel (implementación actual) ---
+async function xl_existsByCuit(cuit) {
+    // Implementación actual de Excel
+    return false; // Placeholder
+}
+async function xl_getSaldo(cuit) {
+    // Implementación actual de Excel
+    return null; // Placeholder
+}
+async function xl_getUltimos(cuit) {
+    // Implementación actual de Excel
+    return []; // Placeholder
+}
+// --- Firestore ---
+async function fb_getDoc(cuit) {
+    const { getDb } = await Promise.resolve().then(() => __importStar(require('../firebase')));
+    const snap = await getDb().collection('clientes').doc(cuit).get();
+    return snap.exists ? snap.data() : null;
+}
+async function existsByCuit(cuit) {
+    if (MODE === 'prod' || MODE === 'emu')
+        return !!(await fb_getDoc(cuit));
+    return xl_existsByCuit(cuit);
+}
+async function getSaldo(cuit) {
+    if (MODE === 'prod' || MODE === 'emu')
+        return (await fb_getDoc(cuit))?.saldo ?? null;
+    return xl_getSaldo(cuit);
+}
+async function getUltimosComprobantes(cuit) {
+    if (MODE === 'prod' || MODE === 'emu')
+        return (await fb_getDoc(cuit))?.comprobantes ?? [];
+    return xl_getUltimos(cuit);
+}
+// Clase legacy para compatibilidad (mantener para no romper código existente)
 class ClientsRepository {
     constructor(filePath) {
         this.clientes = [];
@@ -127,7 +166,7 @@ class ClientsRepository {
     }
     async getSaldo(cuit) {
         const cliente = this.clientes.find(c => c.cuit === cuit);
-        return cliente ? cliente.saldo : null;
+        return cliente ? (cliente.saldo ?? null) : null;
     }
     async getUltimosComprobantes(cuit) {
         const cliente = this.clientes.find(c => c.cuit === cuit);

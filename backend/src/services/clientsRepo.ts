@@ -3,15 +3,57 @@ import path from 'path';
 import fs from 'fs';
 import logger from '../libs/logger';
 
-export interface Cliente {
-  cuit: string;
-  nombre: string;
-  email: string;
-  saldo: number;
-  id_xubio: string;
-  last_doc_date: string;
+const MODE = String(process.env.USE_FIREBASE || '0')
+
+type Cliente = {
+  cuit: string
+  nombre: string
+  email?: string
+  saldo?: number
+  id_xubio?: string
+  last_doc_date?: string
+  comprobantes?: string[]
 }
 
+// --- Excel (implementación actual) ---
+async function xl_existsByCuit(cuit: string): Promise<boolean> {
+  // Implementación actual de Excel
+  return false; // Placeholder
+}
+
+async function xl_getSaldo(cuit: string): Promise<number | null> {
+  // Implementación actual de Excel
+  return null; // Placeholder
+}
+
+async function xl_getUltimos(cuit: string): Promise<string[]> {
+  // Implementación actual de Excel
+  return []; // Placeholder
+}
+
+// --- Firestore ---
+async function fb_getDoc(cuit: string): Promise<Cliente | null> {
+  const { getDb } = await import('../firebase')
+  const snap = await getDb().collection('clientes').doc(cuit).get()
+  return snap.exists ? (snap.data() as Cliente) : null
+}
+
+export async function existsByCuit(cuit: string): Promise<boolean> {
+  if (MODE === 'prod' || MODE === 'emu') return !!(await fb_getDoc(cuit))
+  return xl_existsByCuit(cuit)
+}
+
+export async function getSaldo(cuit: string): Promise<number | null> {
+  if (MODE === 'prod' || MODE === 'emu') return (await fb_getDoc(cuit))?.saldo ?? null
+  return xl_getSaldo(cuit)
+}
+
+export async function getUltimosComprobantes(cuit: string): Promise<string[]> {
+  if (MODE === 'prod' || MODE === 'emu') return (await fb_getDoc(cuit))?.comprobantes ?? []
+  return xl_getUltimos(cuit)
+}
+
+// Clase legacy para compatibilidad (mantener para no romper código existente)
 export class ClientsRepository {
   private filePath: string;
   private clientes: Cliente[] = [];
@@ -116,7 +158,7 @@ export class ClientsRepository {
 
   public async getSaldo(cuit: string): Promise<number | null> {
     const cliente = this.clientes.find(c => c.cuit === cuit);
-    return cliente ? cliente.saldo : null;
+    return cliente ? (cliente.saldo ?? null) : null;
   }
 
   public async getUltimosComprobantes(cuit: string): Promise<string[]> {

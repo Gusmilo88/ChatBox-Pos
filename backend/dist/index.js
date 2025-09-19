@@ -5,23 +5,26 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 require("./config/env");
 const express_1 = __importDefault(require("express"));
-const cors_1 = __importDefault(require("cors"));
 // Si tu logger es default export:
 const logger_1 = __importDefault(require("./libs/logger"));
 // Si no, usá console como fallback:
 // const logger = console as any;
+const security_1 = require("./security");
 const health_1 = __importDefault(require("./routes/health"));
 const simulate_1 = __importDefault(require("./routes/simulate"));
+const whatsapp_1 = __importDefault(require("./routes/whatsapp"));
 const app = (0, express_1.default)();
 const PORT = Number(process.env.PORT || 3001);
-const CORS_ORIGIN = process.env.CORS_ORIGIN || true;
-// Middlewares globales (SIN '*')
-app.use((0, cors_1.default)({ origin: CORS_ORIGIN, credentials: true }));
-app.use(express_1.default.json());
-app.use(express_1.default.urlencoded({ extended: true }));
+// Middlewares de seguridad (SOLO UNA VEZ y antes de las rutas)
+app.use((0, security_1.secureHeaders)());
+app.use((0, security_1.buildCors)());
+app.use(express_1.default.json({ limit: '200kb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '200kb' }));
+app.use((0, security_1.limiter)());
 // Rutas
 app.use('/health', health_1.default); // GET /health → { ok: true }
-app.use('/api', simulate_1.default); // POST /api/simulate/message
+app.use('/webhook/whatsapp', express_1.default.raw({ type: 'application/json' }), whatsapp_1.default); // WhatsApp webhook (raw body)
+app.use('/api', (0, security_1.requireApiKey)(), simulate_1.default); // POST /api/simulate/message (protegido)
 // 404 catch-all (SIN '*')
 app.use((req, res) => {
     return res.status(404).json({ error: 'Not found' });

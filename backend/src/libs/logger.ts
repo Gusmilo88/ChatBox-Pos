@@ -27,4 +27,9 @@ const logger = winston.createLogger({
   ]
 });
 
+export function maskPII(s: string) {
+  if (!s) return s
+  return s.replace(/\+?\d{6,}/g, (m) => m.slice(0,3) + '***' + m.slice(-2))
+}
+
 export default logger;

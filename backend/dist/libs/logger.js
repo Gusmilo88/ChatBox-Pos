@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.maskPII = maskPII;
 const winston_1 = __importDefault(require("winston"));
 const path_1 = __importDefault(require("path"));
 // Crear directorio de logs si no existe
@@ -22,5 +23,10 @@ const logger = winston_1.default.createLogger({
         })
     ]
 });
+function maskPII(s) {
+    if (!s)
+        return s;
+    return s.replace(/\+?\d{6,}/g, (m) => m.slice(0, 3) + '***' + m.slice(-2));
+}
 exports.default = logger;
 //# sourceMappingURL=logger.js.map

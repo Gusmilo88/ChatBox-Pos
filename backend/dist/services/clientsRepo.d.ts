@@ -1,11 +1,6 @@
-export interface Cliente {
-    cuit: string;
-    nombre: string;
-    email: string;
-    saldo: number;
-    id_xubio: string;
-    last_doc_date: string;
-}
+export declare function existsByCuit(cuit: string): Promise<boolean>;
+export declare function getSaldo(cuit: string): Promise<number | null>;
+export declare function getUltimosComprobantes(cuit: string): Promise<string[]>;
 export declare class ClientsRepository {
     private filePath;
     private clientes;
