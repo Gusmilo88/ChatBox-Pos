@@ -1,0 +1,19 @@
+:root { 
+  color-scheme: light; 
+}
+html, body, #root { 
+  height: 100%; 
+}
+body {
+  margin: 0;
+  background: #ffffff;
+  color: #111111;        /* texto negro */
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+input, textarea, button {
+  color: #111111;        /* texto negro */
+}
+::placeholder {
+  color: #888888;
+  opacity: 1;
+}
