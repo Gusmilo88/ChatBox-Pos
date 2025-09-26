@@ -29,6 +29,11 @@ export function getDb() {
     else initializeApp({ credential: applicationDefault() }) // si hay GOOGLE_APPLICATION_CREDENTIALS
   }
   const db = getFirestore()
-  db.settings({ ignoreUndefinedProperties: true })
+  // Solo configurar settings si no se ha hecho antes
+  try {
+    db.settings({ ignoreUndefinedProperties: true })
+  } catch (error) {
+    // Ignorar error si ya se configuró
+  }
   return db
 }

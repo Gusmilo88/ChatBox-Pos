@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { FSMSessionManager } from '../fsm/engine';
-import { ClientsRepository } from '../services/clientsRepo';
 import { LeadsRepository } from '../services/leadsRepo';
 import { aiReply, AiContext } from '../services/ai';
 import logger from '../libs/logger';
@@ -17,7 +16,6 @@ const router = Router();
 
 // Instancias globales
 const fsmManager = new FSMSessionManager();
-const clientsRepo = new ClientsRepository(config.leadsFile);
 const leadsRepo = new LeadsRepository(config.leadsFile);
 
 router.post('/simulate/message', async (req, res) => {
@@ -39,15 +37,7 @@ router.post('/simulate/message', async (req, res) => {
     // Procesar mensaje con FSM
     const result = await fsmManager.processMessage(from, text);
 
-    // Si es un cliente válido, verificar en la base de datos
-    if (result.session.state === 'CLIENTE_MENU' && result.session.data.cuit) {
-      const isClient = clientsRepo.existsByCuit(result.session.data.cuit);
-      if (!isClient) {
-        // No es cliente, redirigir al flujo de no-cliente
-        result.session.state = 'NO_CLIENTE_NAME';
-        result.replies = ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
-      }
-    }
+    // La verificación de cliente ya se hace en el FSM
 
     // Si se completó el flujo de no-cliente, guardar lead
     if (result.session.state === 'HUMANO' && result.session.data.name && result.session.data.email && result.session.data.interest) {

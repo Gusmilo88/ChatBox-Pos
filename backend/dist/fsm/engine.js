@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -41,6 +8,7 @@ const states_1 = require("./states");
 const cuit_1 = require("../utils/cuit");
 const logger_1 = __importDefault(require("../libs/logger"));
 const ai_1 = require("../services/ai");
+const clientsRepo_1 = require("../services/clientsRepo");
 class FSMSessionManager {
     formatARS(n) {
         return n.toLocaleString('es-AR', {
@@ -127,11 +95,21 @@ class FSMSessionManager {
     async processState(session, text) {
         switch (session.state) {
             case states_1.FSMState.START:
-                return this.handleStart(session, text);
+                return await this.handleStart(session, text);
             case states_1.FSMState.WAIT_CUIT:
-                return this.handleWaitCuit(session, text);
+                return await this.handleWaitCuit(session, text);
             case states_1.FSMState.CLIENTE_MENU:
                 return await this.handleClienteMenu(session, text);
+            case states_1.FSMState.CLIENTE_ARCA:
+                return this.handleClienteArca(session, text);
+            case states_1.FSMState.CLIENTE_FACTURA:
+                return this.handleClienteFactura(session, text);
+            case states_1.FSMState.CLIENTE_VENTAS:
+                return this.handleClienteVentas(session, text);
+            case states_1.FSMState.CLIENTE_REUNION:
+                return this.handleClienteReunion(session, text);
+            case states_1.FSMState.CLIENTE_IVAN:
+                return this.handleClienteIvan(session, text);
             case states_1.FSMState.NO_CLIENTE_NAME:
                 return this.handleNoClienteName(session, text);
             case states_1.FSMState.NO_CLIENTE_EMAIL:
@@ -145,28 +123,71 @@ class FSMSessionManager {
                 return [states_1.STATE_TEXTS[states_1.FSMState.START]];
         }
     }
-    handleStart(session, text) {
+    async handleStart(session, text) {
         const lowerText = text.toLowerCase().trim();
-        if (lowerText === 'quiero info') {
+        // Manejar saludos
+        if (['hola', 'holi', 'holis', 'buenos días', 'buenas tardes', 'buenas noches', 'saludos'].includes(lowerText)) {
+            return [states_1.STATE_TEXTS[states_1.FSMState.START]];
+        }
+        // Opción 1: Soy cliente
+        if (lowerText === '1' || lowerText.includes('soy cliente') || lowerText.includes('cliente')) {
+            return ["Perfecto! Para continuar, necesito tu CUIT (solo números)."];
+        }
+        // Opción 2: Quiero ser cliente / Consultar servicios
+        if (lowerText === '2' || lowerText.includes('quiero ser cliente') || lowerText.includes('consultar servicios') || lowerText.includes('quiero info')) {
             session.state = states_1.FSMState.NO_CLIENTE_NAME;
             return [states_1.STATE_TEXTS[states_1.FSMState.NO_CLIENTE_NAME]];
         }
-        // Asumir que es un CUIT
+        // Asumir que es un CUIT (si ya eligió ser cliente)
         if ((0, cuit_1.validarCUIT)(text)) {
-            session.data.cuit = text;
-            session.state = states_1.FSMState.CLIENTE_MENU;
-            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU]];
+            // Verificar si el CUIT existe en la base de datos
+            try {
+                logger_1.default.info(`Verificando CUIT: ${text}`);
+                const isClient = await (0, clientsRepo_1.existsByCuit)(text);
+                logger_1.default.info(`Resultado verificación CUIT ${text}: ${isClient}`);
+                if (isClient) {
+                    session.data.cuit = text;
+                    session.state = states_1.FSMState.CLIENTE_MENU;
+                    return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU]];
+                }
+                else {
+                    session.state = states_1.FSMState.NO_CLIENTE_NAME;
+                    return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+                }
+            }
+            catch (error) {
+                logger_1.default.error('Error verificando cliente:', error);
+                session.state = states_1.FSMState.NO_CLIENTE_NAME;
+                return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+            }
         }
         else {
             session.state = states_1.FSMState.WAIT_CUIT;
             return [states_1.STATE_TEXTS[states_1.FSMState.WAIT_CUIT]];
         }
     }
-    handleWaitCuit(session, text) {
+    async handleWaitCuit(session, text) {
         if ((0, cuit_1.validarCUIT)(text)) {
-            session.data.cuit = text;
-            session.state = states_1.FSMState.CLIENTE_MENU;
-            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU]];
+            // Verificar si el CUIT existe en la base de datos
+            try {
+                logger_1.default.info(`Verificando CUIT (WaitCuit): ${text}`);
+                const isClient = await (0, clientsRepo_1.existsByCuit)(text);
+                logger_1.default.info(`Resultado verificación CUIT (WaitCuit) ${text}: ${isClient}`);
+                if (isClient) {
+                    session.data.cuit = text;
+                    session.state = states_1.FSMState.CLIENTE_MENU;
+                    return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU]];
+                }
+                else {
+                    session.state = states_1.FSMState.NO_CLIENTE_NAME;
+                    return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+                }
+            }
+            catch (error) {
+                logger_1.default.error('Error verificando cliente:', error);
+                session.state = states_1.FSMState.NO_CLIENTE_NAME;
+                return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+            }
         }
         else {
             return [states_1.STATE_TEXTS[states_1.FSMState.WAIT_CUIT]];
@@ -174,56 +195,32 @@ class FSMSessionManager {
     }
     async handleClienteMenu(session, text) {
         const raw = text.trim().toLowerCase();
-        // Mapear entradas 1/2/3/4 y sinónimos
-        const isSaldo = raw === '1' || raw.includes('saldo');
-        const isComp = raw === '2' || raw.includes('comprobante');
-        const isHum = raw === '3' || /humano|asesor|agente/.test(raw);
-        const isInicio = raw === '4' || /inicio|menu/.test(raw);
-        if (isSaldo) {
-            const cuit = session.data.cuit;
-            if (!cuit) {
-                return ['No tengo tu CUIT registrado. Volvé al inicio.'];
-            }
-            try {
-                const clientsRepo = new (await Promise.resolve().then(() => __importStar(require('../services/clientsRepo')))).ClientsRepository('./data/base_noclientes.xlsx');
-                const monto = await clientsRepo.getSaldo(cuit) ?? 0;
-                const montoFormateado = this.formatARS(monto);
-                return [`Tu saldo al día es ARS ${montoFormateado}. Si ves algo raro, decime y te derivamos con el equipo.`];
-            }
-            catch (error) {
-                logger_1.default.error('Error obteniendo saldo:', error);
-                return ['Error obteniendo tu saldo. Te derivamos con el equipo.'];
-            }
+        // Opción 1: Consultar ARCA e Ingresos Brutos
+        if (raw === '1' || raw.includes('arca') || raw.includes('ingresos brutos') || raw.includes('estado')) {
+            session.state = states_1.FSMState.CLIENTE_ARCA;
+            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_ARCA]];
         }
-        if (isComp) {
-            const cuit = session.data.cuit;
-            if (!cuit) {
-                return ['No tengo tu CUIT registrado. Volvé al inicio.'];
-            }
-            try {
-                const clientsRepo = new (await Promise.resolve().then(() => __importStar(require('../services/clientsRepo')))).ClientsRepository('./data/base_noclientes.xlsx');
-                const items = await clientsRepo.getUltimosComprobantes(cuit);
-                if (items.length === 0) {
-                    return ['Por ahora no encuentro comprobantes recientes. ¿Querés que te los envíe por mail o te derivamos con el equipo?'];
-                }
-                const lista = items.slice(0, 3).map(item => `• ${item}`).join('\n');
-                return [`Últimos comprobantes:\n${lista}\n¿Querés que te los reenviemos por mail?`];
-            }
-            catch (error) {
-                logger_1.default.error('Error obteniendo comprobantes:', error);
-                return ['Error obteniendo tus comprobantes. Te derivamos con el equipo.'];
-            }
+        // Opción 2: Solicitar factura electrónica
+        if (raw === '2' || raw.includes('factura') || raw.includes('facturación')) {
+            session.state = states_1.FSMState.CLIENTE_FACTURA;
+            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_FACTURA]];
         }
-        if (isHum) {
-            session.state = states_1.FSMState.HUMANO;
-            return ['Listo, te derivamos con el equipo. ¡Gracias! 🙌'];
+        // Opción 3: Enviar ventas del mes
+        if (raw === '3' || raw.includes('ventas') || raw.includes('venta') || raw.includes('planilla')) {
+            session.state = states_1.FSMState.CLIENTE_VENTAS;
+            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_VENTAS]];
         }
-        if (isInicio) {
-            session.state = states_1.FSMState.START;
-            session.data = {};
-            return [states_1.STATE_TEXTS[states_1.FSMState.START]];
+        // Opción 4: Agendar reunión
+        if (raw === '4' || raw.includes('reunión') || raw.includes('agendar') || raw.includes('cita')) {
+            session.state = states_1.FSMState.CLIENTE_REUNION;
+            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_REUNION]];
         }
-        // Si no coincide con ninguna opción, re-mostrar menú
+        // Opción 5: Hablar con Iván
+        if (raw === '5' || raw.includes('iván') || raw.includes('ivan') || raw.includes('hablar') || raw.includes('consulta')) {
+            session.state = states_1.FSMState.CLIENTE_IVAN;
+            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_IVAN]];
+        }
+        // Si no coincide con ninguna opción, mostrar el menú nuevamente
         return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU]];
     }
     handleNoClienteName(session, text) {
@@ -275,6 +272,45 @@ class FSMSessionManager {
         if (this.cleanupInterval) {
             clearInterval(this.cleanupInterval);
         }
+    }
+    // Handlers para los nuevos estados de cliente
+    handleClienteArca(session, text) {
+        const raw = text.trim().toLowerCase();
+        if (raw === '1' || raw.includes('gracias') || raw.includes('consulta') || raw.includes('app')) {
+            return ["¡Perfecto! 🎉 Cualquier duda que tengas, no dudes en consultarnos."];
+        }
+        if (raw === '2' || raw.includes('persona') || raw.includes('asesor') || raw.includes('ayuda')) {
+            session.state = states_1.FSMState.HUMANO;
+            logger_1.default.info(`Sesión ${session.id} derivada a Belén Maidana (1131134588)`);
+            return ["Te derivamos con Belén Maidana (1131134588) para que te asista personalmente. ¡Gracias!"];
+        }
+        return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_ARCA]];
+    }
+    handleClienteFactura(session, text) {
+        // Si el usuario envía información de factura, derivar a Belén
+        session.state = states_1.FSMState.HUMANO;
+        logger_1.default.info(`Sesión ${session.id} derivada a Belén Maidana (1131134588) para factura`);
+        return ["Recibimos tu solicitud de factura. Te derivamos con Belén Maidana (1131134588) para procesarla. ¡Gracias!"];
+    }
+    handleClienteVentas(session, text) {
+        const raw = text.trim().toLowerCase();
+        if (raw === 'planilla' || raw.includes('planilla')) {
+            return ["📋 Te envío la planilla. Podés completarla en tu celu o imprimirla y completarla a mano, siguiendo estas instrucciones:\n\n☑️ Ingresá la fecha de cada operación (día y mes).\n☑️ Colocá el monto exacto de la venta en pesos.\n☑️ Cliente: escribí el CUIT o DNI. Si no lo tenés, poné Consumidor Final.\n☑️ Detalle: agregá una breve descripción (ejemplo: 'servicio de pintura', 'venta de velas').\n☑️ El campo % sobre el total se calcula solo, no lo modifiques.\n☑️ Revisá que el Monto total a facturar arriba coincida con lo que recibiste en tus cuentas bancarias.\n☑️ Una vez completada, podés enviarnos la planilla directamente por WhatsApp con el botón que figura en ella o adjuntándola acá con una foto."];
+        }
+        // Si envía archivo o información de ventas, derivar a Belén
+        session.state = states_1.FSMState.HUMANO;
+        logger_1.default.info(`Sesión ${session.id} derivada a Belén Maidana (1131134588) para ventas`);
+        return ["Recibimos tu información de ventas. Te derivamos con Belén Maidana (1131134588) para procesarla. ¡Gracias!"];
+    }
+    handleClienteReunion(session, text) {
+        // Siempre mostrar el mensaje de reunión
+        return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_REUNION]];
+    }
+    handleClienteIvan(session, text) {
+        // Siempre derivar a Iván (sin número por ahora)
+        session.state = states_1.FSMState.HUMANO;
+        logger_1.default.info(`Sesión ${session.id} derivada a Iván`);
+        return ["Te derivamos con Iván. Te contactará a la brevedad. ¡Gracias!"];
     }
 }
 exports.FSMSessionManager = FSMSessionManager;

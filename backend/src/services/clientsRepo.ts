@@ -13,29 +13,46 @@ type Cliente = {
   id_xubio?: string
   last_doc_date?: string
   comprobantes?: string[]
+  // Campos de tu base de datos real
+  categoria_monotributo?: string
+  deuda?: number
+  deuda_honorarios?: number
+  estado?: string
+  info_adicional?: string
+  ingresos_brutos?: string
+  lastNotificationDate?: string
+  monto_monotributo?: number
+  planes_pago?: string
+  recategorizacion?: any
 }
 
 // --- Excel (implementación actual) ---
 async function xl_existsByCuit(cuit: string): Promise<boolean> {
-  // Implementación actual de Excel
-  return false; // Placeholder
+  return excelRepo.existsByCuit(cuit);
 }
 
 async function xl_getSaldo(cuit: string): Promise<number | null> {
-  // Implementación actual de Excel
-  return null; // Placeholder
+  return excelRepo.getSaldo(cuit);
 }
 
 async function xl_getUltimos(cuit: string): Promise<string[]> {
-  // Implementación actual de Excel
-  return []; // Placeholder
+  return excelRepo.getUltimosComprobantes(cuit);
 }
 
 // --- Firestore ---
 async function fb_getDoc(cuit: string): Promise<Cliente | null> {
   const { getDb } = await import('../firebase')
-  const snap = await getDb().collection('clientes').doc(cuit).get()
-  return snap.exists ? (snap.data() as Cliente) : null
+  const db = getDb()
+  
+  // Buscar por campo cuit en lugar de usar cuit como ID del documento
+  const snapshot = await db.collection('clientes').where('cuit', '==', cuit).limit(1).get()
+  
+  if (snapshot.empty) {
+    return null
+  }
+  
+  const doc = snapshot.docs[0]
+  return doc.data() as Cliente
 }
 
 export async function existsByCuit(cuit: string): Promise<boolean> {
@@ -44,12 +61,52 @@ export async function existsByCuit(cuit: string): Promise<boolean> {
 }
 
 export async function getSaldo(cuit: string): Promise<number | null> {
-  if (MODE === 'prod' || MODE === 'emu') return (await fb_getDoc(cuit))?.saldo ?? null
+  if (MODE === 'prod' || MODE === 'emu') {
+    const cliente = await fb_getDoc(cuit);
+    if (!cliente) return null;
+    
+    // Usar campos de tu base de datos real
+    // Si tiene deuda_honorarios, usar ese valor
+    if (cliente.deuda_honorarios !== undefined) {
+      return cliente.deuda_honorarios;
+    }
+    // Si no, usar deuda general
+    if (cliente.deuda !== undefined) {
+      return cliente.deuda;
+    }
+    // Fallback al saldo original
+    return cliente.saldo ?? null;
+  }
   return xl_getSaldo(cuit)
 }
 
 export async function getUltimosComprobantes(cuit: string): Promise<string[]> {
-  if (MODE === 'prod' || MODE === 'emu') return (await fb_getDoc(cuit))?.comprobantes ?? []
+  if (MODE === 'prod' || MODE === 'emu') {
+    const cliente = await fb_getDoc(cuit);
+    if (!cliente) return [];
+    
+    // Si tiene comprobantes específicos, usarlos
+    if (cliente.comprobantes && cliente.comprobantes.length > 0) {
+      return cliente.comprobantes;
+    }
+    
+    // Generar comprobantes basados en info_adicional o estado
+    const comprobantes: string[] = [];
+    
+    if (cliente.info_adicional) {
+      comprobantes.push(`Info: ${cliente.info_adicional}`);
+    }
+    
+    if (cliente.planes_pago) {
+      comprobantes.push(`Planes: ${cliente.planes_pago}`);
+    }
+    
+    if (cliente.monto_monotributo !== undefined) {
+      comprobantes.push(`Monotributo: $${cliente.monto_monotributo}`);
+    }
+    
+    return comprobantes.length > 0 ? comprobantes : ['No hay comprobantes disponibles'];
+  }
   return xl_getUltimos(cuit)
 }
 
@@ -183,3 +240,6 @@ export class ClientsRepository {
     return [];
   }
 }
+
+// Instancia global para Excel
+const excelRepo = new ClientsRepository('./data/base_noclientes.xlsx');

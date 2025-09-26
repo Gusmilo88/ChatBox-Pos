@@ -47,22 +47,25 @@ const logger_1 = __importDefault(require("../libs/logger"));
 const MODE = String(process.env.USE_FIREBASE || '0');
 // --- Excel (implementación actual) ---
 async function xl_existsByCuit(cuit) {
-    // Implementación actual de Excel
-    return false; // Placeholder
+    return excelRepo.existsByCuit(cuit);
 }
 async function xl_getSaldo(cuit) {
-    // Implementación actual de Excel
-    return null; // Placeholder
+    return excelRepo.getSaldo(cuit);
 }
 async function xl_getUltimos(cuit) {
-    // Implementación actual de Excel
-    return []; // Placeholder
+    return excelRepo.getUltimosComprobantes(cuit);
 }
 // --- Firestore ---
 async function fb_getDoc(cuit) {
     const { getDb } = await Promise.resolve().then(() => __importStar(require('../firebase')));
-    const snap = await getDb().collection('clientes').doc(cuit).get();
-    return snap.exists ? snap.data() : null;
+    const db = getDb();
+    // Buscar por campo cuit en lugar de usar cuit como ID del documento
+    const snapshot = await db.collection('clientes').where('cuit', '==', cuit).limit(1).get();
+    if (snapshot.empty) {
+        return null;
+    }
+    const doc = snapshot.docs[0];
+    return doc.data();
 }
 async function existsByCuit(cuit) {
     if (MODE === 'prod' || MODE === 'emu')
@@ -70,13 +73,46 @@ async function existsByCuit(cuit) {
     return xl_existsByCuit(cuit);
 }
 async function getSaldo(cuit) {
-    if (MODE === 'prod' || MODE === 'emu')
-        return (await fb_getDoc(cuit))?.saldo ?? null;
+    if (MODE === 'prod' || MODE === 'emu') {
+        const cliente = await fb_getDoc(cuit);
+        if (!cliente)
+            return null;
+        // Usar campos de tu base de datos real
+        // Si tiene deuda_honorarios, usar ese valor
+        if (cliente.deuda_honorarios !== undefined) {
+            return cliente.deuda_honorarios;
+        }
+        // Si no, usar deuda general
+        if (cliente.deuda !== undefined) {
+            return cliente.deuda;
+        }
+        // Fallback al saldo original
+        return cliente.saldo ?? null;
+    }
     return xl_getSaldo(cuit);
 }
 async function getUltimosComprobantes(cuit) {
-    if (MODE === 'prod' || MODE === 'emu')
-        return (await fb_getDoc(cuit))?.comprobantes ?? [];
+    if (MODE === 'prod' || MODE === 'emu') {
+        const cliente = await fb_getDoc(cuit);
+        if (!cliente)
+            return [];
+        // Si tiene comprobantes específicos, usarlos
+        if (cliente.comprobantes && cliente.comprobantes.length > 0) {
+            return cliente.comprobantes;
+        }
+        // Generar comprobantes basados en info_adicional o estado
+        const comprobantes = [];
+        if (cliente.info_adicional) {
+            comprobantes.push(`Info: ${cliente.info_adicional}`);
+        }
+        if (cliente.planes_pago) {
+            comprobantes.push(`Planes: ${cliente.planes_pago}`);
+        }
+        if (cliente.monto_monotributo !== undefined) {
+            comprobantes.push(`Monotributo: $${cliente.monto_monotributo}`);
+        }
+        return comprobantes.length > 0 ? comprobantes : ['No hay comprobantes disponibles'];
+    }
     return xl_getUltimos(cuit);
 }
 // Clase legacy para compatibilidad (mantener para no romper código existente)
@@ -191,4 +227,6 @@ class ClientsRepository {
     }
 }
 exports.ClientsRepository = ClientsRepository;
+// Instancia global para Excel
+const excelRepo = new ClientsRepository('./data/base_noclientes.xlsx');
 //# sourceMappingURL=clientsRepo.js.map

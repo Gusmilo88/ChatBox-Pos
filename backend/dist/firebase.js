@@ -33,7 +33,13 @@ function getDb() {
             (0, app_1.initializeApp)({ credential: (0, app_1.applicationDefault)() }); // si hay GOOGLE_APPLICATION_CREDENTIALS
     }
     const db = (0, firestore_1.getFirestore)();
-    db.settings({ ignoreUndefinedProperties: true });
+    // Solo configurar settings si no se ha hecho antes
+    try {
+        db.settings({ ignoreUndefinedProperties: true });
+    }
+    catch (error) {
+        // Ignorar error si ya se configuró
+    }
     return db;
 }
 //# sourceMappingURL=firebase.js.map

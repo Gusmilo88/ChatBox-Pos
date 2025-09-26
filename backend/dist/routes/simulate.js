@@ -6,7 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const zod_1 = require("zod");
 const engine_1 = require("../fsm/engine");
-const clientsRepo_1 = require("../services/clientsRepo");
 const leadsRepo_1 = require("../services/leadsRepo");
 const ai_1 = require("../services/ai");
 const logger_1 = __importDefault(require("../libs/logger"));
@@ -19,7 +18,6 @@ const MessageRequestSchema = zod_1.z.object({
 const router = (0, express_1.Router)();
 // Instancias globales
 const fsmManager = new engine_1.FSMSessionManager();
-const clientsRepo = new clientsRepo_1.ClientsRepository(env_1.default.leadsFile);
 const leadsRepo = new leadsRepo_1.LeadsRepository(env_1.default.leadsFile);
 router.post('/simulate/message', async (req, res) => {
     try {
@@ -36,15 +34,7 @@ router.post('/simulate/message', async (req, res) => {
         logger_1.default.info(`Mensaje recibido de ${from}: ${text}`);
         // Procesar mensaje con FSM
         const result = await fsmManager.processMessage(from, text);
-        // Si es un cliente válido, verificar en la base de datos
-        if (result.session.state === 'CLIENTE_MENU' && result.session.data.cuit) {
-            const isClient = clientsRepo.existsByCuit(result.session.data.cuit);
-            if (!isClient) {
-                // No es cliente, redirigir al flujo de no-cliente
-                result.session.state = 'NO_CLIENTE_NAME';
-                result.replies = ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
-            }
-        }
+        // La verificación de cliente ya se hace en el FSM
         // Si se completó el flujo de no-cliente, guardar lead
         if (result.session.state === 'HUMANO' && result.session.data.name && result.session.data.email && result.session.data.interest) {
             try {

@@ -3,6 +3,7 @@ import { FSMState, GlobalCommands, STATE_TEXTS } from './states';
 import { validarCUIT } from '../utils/cuit';
 import logger from '../libs/logger';
 import { aiReply, AiContext } from '../services/ai';
+import { existsByCuit } from '../services/clientsRepo';
 
 export class FSMSessionManager {
   private sessions: Map<string, Session> = new Map();
@@ -83,6 +84,31 @@ export class FSMSessionManager {
       return [STATE_TEXTS[FSMState.HUMANO]];
     }
 
+    // Si está en cualquier estado de cliente y dice "hola", volver al menú del cliente si tiene CUIT
+    if ([FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN].includes(session.state) && ['hola', 'holi', 'holis', 'buenos días', 'buenas tardes', 'buenas noches', 'saludos'].includes(msg)) {
+      if (session.data.cuit) {
+        session.state = FSMState.CLIENTE_MENU;
+        logger.info(`Sesión ${session.id} volvió al menú del cliente desde ${session.state}`);
+        return [STATE_TEXTS[FSMState.CLIENTE_MENU]];
+      } else {
+        session.state = FSMState.START;
+        session.data = {};
+        logger.info(`Sesión ${session.id} reseteada a START desde ${session.state}`);
+        return [STATE_TEXTS[FSMState.START]];
+      }
+    }
+
+    // Si está en cualquier estado y dice algo que no es comando específico, volver al inicio
+    if ([FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN].includes(session.state)) {
+      // Si es texto corto (1-2 caracteres) o no es comando específico, volver al inicio
+      if (text.length <= 2 || !['1', '2', '3', '4', '5', 'menu', 'inicio', 'volver', 'start', 'humano'].includes(msg)) {
+        session.state = FSMState.START;
+        session.data = {};
+        logger.info(`Sesión ${session.id} reseteada a START desde ${session.state} por texto: ${text}`);
+        return [STATE_TEXTS[FSMState.START]];
+      }
+    }
+
     return null;
   }
 
@@ -110,13 +136,28 @@ export class FSMSessionManager {
   private async processState(session: Session, text: string): Promise<string[]> {
     switch (session.state) {
       case FSMState.START:
-        return this.handleStart(session, text);
+        return await this.handleStart(session, text);
       
       case FSMState.WAIT_CUIT:
-        return this.handleWaitCuit(session, text);
+        return await this.handleWaitCuit(session, text);
       
       case FSMState.CLIENTE_MENU:
         return await this.handleClienteMenu(session, text);
+      
+      case FSMState.CLIENTE_ARCA:
+        return this.handleClienteArca(session, text);
+      
+      case FSMState.CLIENTE_FACTURA:
+        return this.handleClienteFactura(session, text);
+      
+      case FSMState.CLIENTE_VENTAS:
+        return this.handleClienteVentas(session, text);
+      
+      case FSMState.CLIENTE_REUNION:
+        return this.handleClienteReunion(session, text);
+      
+      case FSMState.CLIENTE_IVAN:
+        return this.handleClienteIvan(session, text);
       
       case FSMState.NO_CLIENTE_NAME:
         return this.handleNoClienteName(session, text);
@@ -136,30 +177,95 @@ export class FSMSessionManager {
     }
   }
 
-  private handleStart(session: Session, text: string): string[] {
+  private async handleStart(session: Session, text: string): Promise<string[]> {
     const lowerText = text.toLowerCase().trim();
     
-    if (lowerText === 'quiero info') {
+    // Si es un CUIT válido, verificar si existe en la base de datos
+    if (validarCUIT(text)) {
+      try {
+        logger.info(`Verificando CUIT: ${text}`);
+        const isClient = await existsByCuit(text);
+        logger.info(`Resultado verificación CUIT ${text}: ${isClient}`);
+        if (isClient) {
+          session.data.cuit = text;
+          // Obtener nombre del cliente desde la misma fuente que verifica existsByCuit
+          try {
+            const { getDb } = await import('../firebase');
+            const db = getDb();
+            const snapshot = await db.collection('clientes').where('cuit', '==', text).limit(1).get();
+            const nombre = snapshot.empty ? null : snapshot.docs[0].data().nombre;
+            if (!nombre) {
+              session.state = FSMState.NO_CLIENTE_NAME;
+              return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+            }
+            session.state = FSMState.CLIENTE_MENU;
+            return [`¡Hola ${nombre}! 👋 Soy el asistente 🤖 de POS & Asociados. Elegí una opción:\n\n1. Consultar mi estado general en ARCA e Ingresos Brutos\n2. Solicitar una factura electrónica\n3. Enviar las ventas del mes\n4. Agendar una reunión\n5. Hablar con Iván por otras consultas`];
+          } catch (error) {
+            logger.error('Error obteniendo nombre del cliente:', error);
+            session.state = FSMState.NO_CLIENTE_NAME;
+            return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+          }
+        } else {
+          session.state = FSMState.NO_CLIENTE_NAME;
+          return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+        }
+      } catch (error) {
+        logger.error('Error verificando cliente:', error);
+        session.state = FSMState.NO_CLIENTE_NAME;
+        return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+      }
+    }
+    
+    // Opción 1: Soy cliente
+    if (lowerText === '1' || lowerText.includes('soy cliente') || lowerText.includes('cliente')) {
+      return ["Perfecto! Para continuar, necesito tu CUIT (solo números)."];
+    }
+    
+    // Opción 2: Quiero ser cliente / Consultar servicios
+    if (lowerText === '2' || lowerText.includes('quiero ser cliente') || lowerText.includes('consultar servicios') || lowerText.includes('quiero info')) {
       session.state = FSMState.NO_CLIENTE_NAME;
       return [STATE_TEXTS[FSMState.NO_CLIENTE_NAME]];
     }
     
-    // Asumir que es un CUIT
-    if (validarCUIT(text)) {
-      session.data.cuit = text;
-      session.state = FSMState.CLIENTE_MENU;
-      return [STATE_TEXTS[FSMState.CLIENTE_MENU]];
-    } else {
-      session.state = FSMState.WAIT_CUIT;
-      return [STATE_TEXTS[FSMState.WAIT_CUIT]];
-    }
+    // Para CUALQUIER otro texto (hola, abc, etc.), mostrar el menú inicial
+    return [STATE_TEXTS[FSMState.START]];
   }
 
-  private handleWaitCuit(session: Session, text: string): string[] {
+  private async handleWaitCuit(session: Session, text: string): Promise<string[]> {
     if (validarCUIT(text)) {
-      session.data.cuit = text;
-      session.state = FSMState.CLIENTE_MENU;
-      return [STATE_TEXTS[FSMState.CLIENTE_MENU]];
+      // Verificar si el CUIT existe en la base de datos
+      try {
+        logger.info(`Verificando CUIT (WaitCuit): ${text}`);
+        const isClient = await existsByCuit(text);
+        logger.info(`Resultado verificación CUIT (WaitCuit) ${text}: ${isClient}`);
+        if (isClient) {
+          session.data.cuit = text;
+          // Obtener nombre del cliente desde la misma fuente que verifica existsByCuit
+          try {
+            const { getDb } = await import('../firebase');
+            const db = getDb();
+            const snapshot = await db.collection('clientes').where('cuit', '==', text).limit(1).get();
+            const nombre = snapshot.empty ? null : snapshot.docs[0].data().nombre;
+            if (!nombre) {
+              session.state = FSMState.NO_CLIENTE_NAME;
+              return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+            }
+            session.state = FSMState.CLIENTE_MENU;
+            return [`¡Hola ${nombre}! 👋 Soy el asistente 🤖 de POS & Asociados. Elegí una opción:\n\n1. Consultar mi estado general en ARCA e Ingresos Brutos\n2. Solicitar una factura electrónica\n3. Enviar las ventas del mes\n4. Agendar una reunión\n5. Hablar con Iván por otras consultas`];
+          } catch (error) {
+            logger.error('Error obteniendo nombre del cliente:', error);
+            session.state = FSMState.NO_CLIENTE_NAME;
+            return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+          }
+        } else {
+          session.state = FSMState.NO_CLIENTE_NAME;
+          return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+        }
+      } catch (error) {
+        logger.error('Error verificando cliente:', error);
+        session.state = FSMState.NO_CLIENTE_NAME;
+        return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+      }
     } else {
       return [STATE_TEXTS[FSMState.WAIT_CUIT]];
     }
@@ -168,63 +274,37 @@ export class FSMSessionManager {
   private async handleClienteMenu(session: Session, text: string): Promise<string[]> {
     const raw = text.trim().toLowerCase();
     
-    // Mapear entradas 1/2/3/4 y sinónimos
-    const isSaldo = raw === '1' || raw.includes('saldo');
-    const isComp = raw === '2' || raw.includes('comprobante');
-    const isHum = raw === '3' || /humano|asesor|agente/.test(raw);
-    const isInicio = raw === '4' || /inicio|menu/.test(raw);
-    
-    if (isSaldo) {
-      const cuit = session.data.cuit;
-      if (!cuit) {
-        return ['No tengo tu CUIT registrado. Volvé al inicio.'];
-      }
-      
-      try {
-        const clientsRepo = new (await import('../services/clientsRepo')).ClientsRepository('./data/base_noclientes.xlsx');
-        const monto = await clientsRepo.getSaldo(cuit) ?? 0;
-        const montoFormateado = this.formatARS(monto);
-        return [`Tu saldo al día es ARS ${montoFormateado}. Si ves algo raro, decime y te derivamos con el equipo.`];
-      } catch (error) {
-        logger.error('Error obteniendo saldo:', error);
-        return ['Error obteniendo tu saldo. Te derivamos con el equipo.'];
-      }
+    // Opción 1: Consultar ARCA e Ingresos Brutos
+    if (raw === '1' || raw.includes('arca') || raw.includes('ingresos brutos') || raw.includes('estado')) {
+      session.state = FSMState.CLIENTE_ARCA;
+      return [STATE_TEXTS[FSMState.CLIENTE_ARCA]];
     }
     
-    if (isComp) {
-      const cuit = session.data.cuit;
-      if (!cuit) {
-        return ['No tengo tu CUIT registrado. Volvé al inicio.'];
-      }
-      
-      try {
-        const clientsRepo = new (await import('../services/clientsRepo')).ClientsRepository('./data/base_noclientes.xlsx');
-        const items = await clientsRepo.getUltimosComprobantes(cuit);
-        
-        if (items.length === 0) {
-          return ['Por ahora no encuentro comprobantes recientes. ¿Querés que te los envíe por mail o te derivamos con el equipo?'];
-        }
-        
-        const lista = items.slice(0, 3).map(item => `• ${item}`).join('\n');
-        return [`Últimos comprobantes:\n${lista}\n¿Querés que te los reenviemos por mail?`];
-      } catch (error) {
-        logger.error('Error obteniendo comprobantes:', error);
-        return ['Error obteniendo tus comprobantes. Te derivamos con el equipo.'];
-      }
+    // Opción 2: Solicitar factura electrónica
+    if (raw === '2' || raw.includes('factura') || raw.includes('facturación')) {
+      session.state = FSMState.CLIENTE_FACTURA;
+      return [STATE_TEXTS[FSMState.CLIENTE_FACTURA]];
     }
     
-    if (isHum) {
-      session.state = FSMState.HUMANO;
-      return ['Listo, te derivamos con el equipo. ¡Gracias! 🙌'];
+    // Opción 3: Enviar ventas del mes
+    if (raw === '3' || raw.includes('ventas') || raw.includes('venta') || raw.includes('planilla')) {
+      session.state = FSMState.CLIENTE_VENTAS;
+      return [STATE_TEXTS[FSMState.CLIENTE_VENTAS]];
     }
     
-    if (isInicio) {
-      session.state = FSMState.START;
-      session.data = {};
-      return [STATE_TEXTS[FSMState.START]];
+    // Opción 4: Agendar reunión
+    if (raw === '4' || raw.includes('reunión') || raw.includes('agendar') || raw.includes('cita')) {
+      session.state = FSMState.CLIENTE_REUNION;
+      return [STATE_TEXTS[FSMState.CLIENTE_REUNION]];
     }
     
-    // Si no coincide con ninguna opción, re-mostrar menú
+    // Opción 5: Hablar con Iván
+    if (raw === '5' || raw.includes('iván') || raw.includes('ivan') || raw.includes('hablar') || raw.includes('consulta')) {
+      session.state = FSMState.CLIENTE_IVAN;
+      return [STATE_TEXTS[FSMState.CLIENTE_IVAN]];
+    }
+    
+    // Si no coincide con ninguna opción, mostrar el menú nuevamente
     return [STATE_TEXTS[FSMState.CLIENTE_MENU]];
   }
 
@@ -287,5 +367,54 @@ export class FSMSessionManager {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
     }
+  }
+
+  // Handlers para los nuevos estados de cliente
+  private handleClienteArca(session: Session, text: string): string[] {
+    const raw = text.trim().toLowerCase();
+    
+    if (raw === '1' || raw.includes('gracias') || raw.includes('consulta') || raw.includes('app')) {
+      return ["¡Perfecto! 🎉 Cualquier duda que tengas, no dudes en consultarnos."];
+    }
+    
+    if (raw === '2' || raw.includes('persona') || raw.includes('asesor') || raw.includes('ayuda')) {
+      session.state = FSMState.HUMANO;
+      logger.info(`Sesión ${session.id} derivada a Belén Maidana (1131134588)`);
+      return ["Te derivamos con Belén Maidana (1131134588) para que te asista personalmente. ¡Gracias!"];
+    }
+    
+    return [STATE_TEXTS[FSMState.CLIENTE_ARCA]];
+  }
+
+  private handleClienteFactura(session: Session, text: string): string[] {
+    // Si el usuario envía información de factura, derivar a Belén
+    session.state = FSMState.HUMANO;
+    logger.info(`Sesión ${session.id} derivada a Belén Maidana (1131134588) para factura`);
+    return ["Recibimos tu solicitud de factura. Te derivamos con Belén Maidana (1131134588) para procesarla. ¡Gracias!"];
+  }
+
+  private handleClienteVentas(session: Session, text: string): string[] {
+    const raw = text.trim().toLowerCase();
+    
+    if (raw === 'planilla' || raw.includes('planilla')) {
+      return ["📋 Te envío la planilla. Podés completarla en tu celu o imprimirla y completarla a mano, siguiendo estas instrucciones:\n\n☑️ Ingresá la fecha de cada operación (día y mes).\n☑️ Colocá el monto exacto de la venta en pesos.\n☑️ Cliente: escribí el CUIT o DNI. Si no lo tenés, poné Consumidor Final.\n☑️ Detalle: agregá una breve descripción (ejemplo: 'servicio de pintura', 'venta de velas').\n☑️ El campo % sobre el total se calcula solo, no lo modifiques.\n☑️ Revisá que el Monto total a facturar arriba coincida con lo que recibiste en tus cuentas bancarias.\n☑️ Una vez completada, podés enviarnos la planilla directamente por WhatsApp con el botón que figura en ella o adjuntándola acá con una foto."];
+    }
+    
+    // Si envía archivo o información de ventas, derivar a Belén
+    session.state = FSMState.HUMANO;
+    logger.info(`Sesión ${session.id} derivada a Belén Maidana (1131134588) para ventas`);
+    return ["Recibimos tu información de ventas. Te derivamos con Belén Maidana (1131134588) para procesarla. ¡Gracias!"];
+  }
+
+  private handleClienteReunion(session: Session, text: string): string[] {
+    // Siempre mostrar el mensaje de reunión
+    return [STATE_TEXTS[FSMState.CLIENTE_REUNION]];
+  }
+
+  private handleClienteIvan(session: Session, text: string): string[] {
+    // Siempre derivar a Iván (sin número por ahora)
+    session.state = FSMState.HUMANO;
+    logger.info(`Sesión ${session.id} derivada a Iván`);
+    return ["Te derivamos con Iván. Te contactará a la brevedad. ¡Gracias!"];
   }
 }
