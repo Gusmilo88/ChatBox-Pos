@@ -10,6 +10,11 @@ export enum FSMState {
   NO_CLIENTE_NAME = 'NO_CLIENTE_NAME',
   NO_CLIENTE_EMAIL = 'NO_CLIENTE_EMAIL',
   NO_CLIENTE_INTEREST = 'NO_CLIENTE_INTEREST',
+  NO_CLIENTE_ALTA = 'NO_CLIENTE_ALTA',
+  NO_CLIENTE_ALTA_REQS = 'NO_CLIENTE_ALTA_REQS',
+  NO_CLIENTE_PLAN = 'NO_CLIENTE_PLAN',
+  NO_CLIENTE_RESPONSABLE = 'NO_CLIENTE_RESPONSABLE',
+  NO_CLIENTE_CONSULTA = 'NO_CLIENTE_CONSULTA',
   HUMANO = 'HUMANO'
 }
 
@@ -33,10 +38,20 @@ export const STATE_TEXTS = {
   
   [FSMState.CLIENTE_REUNION]: "📅 Agendar una reunión\n\nElegí día y horario en nuestra agenda online:\n\n➡️ https://calendly.com/posyasociados/sincosto\n\n¡Gracias!",
   
-  [FSMState.CLIENTE_IVAN]: "👤 Hablar con Iván\n\nPerfecto, en breve te contactaré con Iván.\n\n📞",
+  [FSMState.CLIENTE_IVAN]: "Perfecto, en breve te contactaré con Iván.📞",
   
   [FSMState.NO_CLIENTE_NAME]: "Decime tu nombre y empresa.",
   [FSMState.NO_CLIENTE_EMAIL]: "Dejame tu email.",
-  [FSMState.NO_CLIENTE_INTEREST]: "¿Qué te interesa? (alta cliente / honorarios / turno_consulta / otras_consultas)",
+  [FSMState.NO_CLIENTE_INTEREST]: "¿Qué te interesa?\n\n1. Alta en Monotributo / Ingresos Brutos\n2. Ya soy monotributista, quiero conocer sobre el Plan Mensual\n3. Soy Responsable Inscripto, quiero mas info sobre los servicios\n4. Estado de mi Consulta\n5. Hablar con un profesional, tengo otras dudas y/o consultas",
+  
+  // Estados del flujo de no-cliente
+  [FSMState.NO_CLIENTE_ALTA]: "📋 **Alta en Monotributo / Ingresos Brutos**\n\nNuestro Plan para Monotributistas y emprendedores cuesta **$29.500** mensuales e incluye:\n\n✅ Alta en Monotributo e Ingresos Brutos\n✅ Liquidación mensual\n✅ Emisión de facturas/boletas\n✅ Control de pagos y categoría\n✅ Acceso a nuestra app exclusiva con tu posición impositiva actualizada cada semana.\n\n**Además:**\n📅 Reporte inicial en el día\n💻 Videollamada sin cargo\n🤝 Acompañamiento permanente.\n\n➡️ ¿Te digo lo que necesito para empezar?\n\n1- Sí, quiero el alta ahora, ¿qué necesitas?\n2- Prefiero hablar con alguien, tengo dudas.",
+  
+  [FSMState.NO_CLIENTE_PLAN]: "📊 **Ya soy monotributista, quiero conocer sobre el Plan Mensual**\n\nNuestro Plan para Monotributistas y emprendedores cuesta **$29.500** mensuales e incluye:\n\n✅ Reporte inicial para detectar desvios e intimaciones\n✅ Liquidación mensual de Ingresos Brutos\n✅ Emisión de facturas/boletas\n✅ Control de pagos y categoría\n✅ Acceso a nuestra app exclusiva con tu posición impositiva actualizada cada semana\n\n**Además:**\n💻 Videollamada sin cargo\n🤝 Acompañamiento permanente\n\n➡️ ¿Te digo lo que necesito para empezar?\n\n1- Sí, quiero el reporte ahora para conocer cómo está todo.\n2- Prefiero hablar con alguien, tengo dudas.",
+  
+  [FSMState.NO_CLIENTE_RESPONSABLE]: "🏢 **Soy Responsable Inscripto, quiero mas info sobre los servicios**\n\nPerfecto, en breve te contactaré con Iván 📞.",
+  
+  [FSMState.NO_CLIENTE_CONSULTA]: "📌 **Estado de mi Consulta**\n\nPara poder ubicar tu consulta, por favor escribí tu Nombre y Apellido completos ✍️.\n\nSi la consulta se hizo dentro de las últimas 24 horas, quedate tranquilo/a: la estamos procesando y te vamos a responder lo antes posible.\nSi ya pasó más tiempo, revisamos tu caso y te damos prioridad en la respuesta.",
+  
   [FSMState.HUMANO]: "Listo, te derivamos con el equipo. ¡Gracias! 🙌"
 } as const;

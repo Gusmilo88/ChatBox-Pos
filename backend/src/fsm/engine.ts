@@ -85,7 +85,8 @@ export class FSMSessionManager {
     }
 
     // Si está en cualquier estado de cliente y dice "hola", volver al menú del cliente si tiene CUIT
-    if ([FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN].includes(session.state) && ['hola', 'holi', 'holis', 'buenos días', 'buenas tardes', 'buenas noches', 'saludos'].includes(msg)) {
+    // PERO NO si ya está en START (para evitar loops)
+    if (session.state !== FSMState.START && [FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN].includes(session.state) && ['hola', 'holi', 'holis', 'buenos días', 'buenas tardes', 'buenas noches', 'saludos'].includes(msg)) {
       if (session.data.cuit) {
         session.state = FSMState.CLIENTE_MENU;
         logger.info(`Sesión ${session.id} volvió al menú del cliente desde ${session.state}`);
@@ -99,7 +100,8 @@ export class FSMSessionManager {
     }
 
     // Si está en cualquier estado y dice algo que no es comando específico, volver al inicio
-    if ([FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN].includes(session.state)) {
+    // PERO NO en estados que manejan opciones 1/2/3/4/5
+    if ([FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN, FSMState.NO_CLIENTE_RESPONSABLE].includes(session.state)) {
       // Si es texto corto (1-2 caracteres) o no es comando específico, volver al inicio
       if (text.length <= 2 || !['1', '2', '3', '4', '5', 'menu', 'inicio', 'volver', 'start', 'humano'].includes(msg)) {
         session.state = FSMState.START;
@@ -168,6 +170,21 @@ export class FSMSessionManager {
       case FSMState.NO_CLIENTE_INTEREST:
         return await this.handleNoClienteInterest(session, text);
       
+              case FSMState.NO_CLIENTE_ALTA:
+                return this.handleNoClienteAlta(session, text);
+
+              case FSMState.NO_CLIENTE_ALTA_REQS:
+                return this.handleNoClienteAltaReqs(session, text);
+
+              case FSMState.NO_CLIENTE_PLAN:
+        return this.handleNoClientePlan(session, text);
+      
+      case FSMState.NO_CLIENTE_RESPONSABLE:
+        return this.handleNoClienteResponsable(session, text);
+      
+      case FSMState.NO_CLIENTE_CONSULTA:
+        return this.handleNoClienteConsulta(session, text);
+      
       case FSMState.HUMANO:
         return [STATE_TEXTS[FSMState.HUMANO]];
       
@@ -223,8 +240,8 @@ export class FSMSessionManager {
     
     // Opción 2: Quiero ser cliente / Consultar servicios
     if (lowerText === '2' || lowerText.includes('quiero ser cliente') || lowerText.includes('consultar servicios') || lowerText.includes('quiero info')) {
-      session.state = FSMState.NO_CLIENTE_NAME;
-      return [STATE_TEXTS[FSMState.NO_CLIENTE_NAME]];
+      session.state = FSMState.NO_CLIENTE_INTEREST;
+      return [STATE_TEXTS[FSMState.NO_CLIENTE_INTEREST]];
     }
     
     // Para CUALQUIER otro texto (hola, abc, etc.), mostrar el menú inicial
@@ -327,40 +344,46 @@ export class FSMSessionManager {
   }
 
   private async handleNoClienteInterest(session: Session, text: string): Promise<string[]> {
-    const validInterests = ['alta cliente', 'honorarios', 'turno_consulta', 'otras_consultas'];
     const lowerText = text.toLowerCase().trim();
     
-    if (!validInterests.includes(lowerText)) {
-      return ['Por favor, elegí una de las opciones: alta cliente / honorarios / turno_consulta / otras_consultas'];
+    // Opción 1: Alta en Monotributo / Ingresos Brutos
+    if (lowerText === '1' || lowerText.includes('alta') || lowerText.includes('monotributo')) {
+      session.state = FSMState.NO_CLIENTE_ALTA;
+      session.data.interest = 'alta_monotributo';
+      return [STATE_TEXTS[FSMState.NO_CLIENTE_ALTA]];
     }
     
-    session.data.interest = lowerText;
-    
-    // Si es "otras_consultas", usar IA
-    if (lowerText === 'otras_consultas') {
-      try {
-        const aiContext: AiContext = {
-          role: 'no_cliente',
-          interest: 'otras_consultas',
-          lastUserText: text
-        };
-        
-        const aiResponse = await aiReply(aiContext);
-        return [aiResponse + " ¿Querés que te derive con el equipo?"];
-      } catch (error) {
-        logger.error('Error en IA para no-cliente:', error);
-        session.state = FSMState.HUMANO;
-        return [STATE_TEXTS[FSMState.HUMANO]];
-      }
+    // Opción 2: Ya soy monotributista, quiero conocer sobre el Plan Mensual
+    if (lowerText === '2' || lowerText.includes('plan mensual') || lowerText.includes('monotributista')) {
+      session.state = FSMState.NO_CLIENTE_PLAN;
+      session.data.interest = 'plan_mensual';
+      return [STATE_TEXTS[FSMState.NO_CLIENTE_PLAN]];
     }
     
-    // Para otros intereses, mantener flujo actual
-    session.state = FSMState.HUMANO;
+    // Opción 3: Soy Responsable Inscripto, quiero mas info sobre los servicios
+    if (lowerText === '3' || lowerText.includes('responsable inscripto') || lowerText.includes('responsable')) {
+      session.state = FSMState.NO_CLIENTE_RESPONSABLE;
+      session.data.interest = 'responsable_inscripto';
+      return [STATE_TEXTS[FSMState.NO_CLIENTE_RESPONSABLE]];
+    }
     
-    // TODO: Guardar lead en leadsRepo
-    logger.info(`Lead completado: ${JSON.stringify(session.data)}`);
+    // Opción 4: Estado de mi Consulta
+    if (lowerText === '4' || lowerText.includes('estado') || lowerText.includes('consulta')) {
+      session.state = FSMState.NO_CLIENTE_CONSULTA;
+      session.data.interest = 'estado_consulta';
+      return [STATE_TEXTS[FSMState.NO_CLIENTE_CONSULTA]];
+    }
     
-    return [STATE_TEXTS[FSMState.HUMANO]];
+    // Opción 5: Hablar con un profesional, tengo otras dudas y/o consultas
+    if (lowerText === '5' || lowerText.includes('profesional') || lowerText.includes('dudas') || lowerText.includes('consultas')) {
+      session.state = FSMState.HUMANO;
+      session.data.interest = 'otras_consultas';
+      logger.info(`Lead completado: ${JSON.stringify(session.data)}`);
+      return ["Perfecto, en breve te contactaré con Iván ☎."];
+    }
+    
+    // Si no coincide con ninguna opción, mostrar el menú nuevamente
+    return [STATE_TEXTS[FSMState.NO_CLIENTE_INTEREST]];
   }
 
   public destroy(): void {
@@ -416,5 +439,76 @@ export class FSMSessionManager {
     session.state = FSMState.HUMANO;
     logger.info(`Sesión ${session.id} derivada a Iván`);
     return ["Te derivamos con Iván. Te contactará a la brevedad. ¡Gracias!"];
+  }
+
+  // Handlers para los estados de no-cliente
+  private handleNoClienteAlta(session: Session, text: string): string[] {
+    const lowerText = text.toLowerCase().trim();
+    
+    if (lowerText === '1') {
+      // Cambiar a un estado intermedio para manejar la segunda respuesta
+      session.state = FSMState.NO_CLIENTE_ALTA_REQS;
+      return ["🤝 Perfecto 🙌\n\nLo que necesito para iniciar tu alta es:\n\n✅ Tu CUIT\n✅ Tu Clave Fiscal\n📸 Foto del DNI (frente y dorso)\n🤳 Selfie (preferentemente fondo claro, como una foto carnet)\n📝 Descripción de la tarea o actividad que vas a realizar\n⚖️ Confirmar si trabajás en relación de dependencia (en blanco) o no para aplicarte beneficios.\n🏪 Confirmar si tenés un local a la calle\n\n🔒 Si preferis hablar con alguien, respondé 1."];
+    }
+    
+    // Cualquier otra cosa va a Iván
+    session.state = FSMState.HUMANO;
+    logger.info(`Sesión ${session.id} derivada a Iván Pos para alta`);
+    return ["🧑‍🤝‍🧑 Hablar con alguien\n\nPerfecto, en breve te contactaré con Iván 📞."];
+  }
+
+  private handleNoClienteAltaReqs(session: Session, text: string): string[] {
+    const lowerText = text.toLowerCase().trim();
+    
+    if (lowerText === '1') {
+      session.state = FSMState.HUMANO;
+      logger.info(`Sesión ${session.id} derivada a Iván Pos para alta`);
+      return ["🧑‍🤝‍🧑 Hablar con alguien\n\nPerfecto, en breve te contactaré con Iván 📞."];
+    }
+    
+    // Cualquier otra cosa va a Elina
+    session.state = FSMState.HUMANO;
+    logger.info(`Sesión ${session.id} derivada a Elina Maidana (1124567087) para alta`);
+    return ["🧑‍🤝‍🧑 Hablar con alguien\n\nTe derivamos con Elina Maidana (1124567087) para que te asista con tu alta. ¡Gracias!"];
+  }
+
+  private handleNoClientePlan(session: Session, text: string): string[] {
+    const lowerText = text.toLowerCase().trim();
+    
+    if (lowerText === '1' || lowerText.includes('si') || lowerText.includes('quiero') || lowerText.includes('empezar') || lowerText.includes('reporte')) {
+      return ["🤝 Perfecto\n\nLo que necesito para tu reporte inicial (sin cargo) es:\n\n✅ Tu CUIT\n✅ Tu Clave Fiscal\n\n🔒 Si preferis hablar con alguien, respondé 2."];
+    }
+    
+    if (lowerText === '2') {
+      session.state = FSMState.HUMANO;
+      logger.info(`Sesión ${session.id} derivada a Iván Pos para plan mensual`);
+      return ["🧑‍🤝‍🧑 Hablar con alguien\n\nPerfecto, en breve te contactaré con Iván 📞."];
+    }
+    
+    // Cualquier otra cosa va a Elina
+    session.state = FSMState.HUMANO;
+    logger.info(`Sesión ${session.id} derivada a Elina Maidana (1124567087) para plan mensual`);
+    return ["🧑‍🤝‍🧑 Hablar con alguien\n\nTe derivamos con Elina Maidana (1124567087) para que te asista con tu plan mensual. ¡Gracias!"];
+  }
+
+  private handleNoClienteResponsable(session: Session, text: string): string[] {
+    // Siempre derivar a Iván para Responsable Inscripto
+    session.state = FSMState.HUMANO;
+    logger.info(`Sesión ${session.id} derivada a Iván Pos para Responsable Inscripto`);
+    return ["Te derivamos con Iván Pos. Te contactará a la brevedad. ¡Gracias!"];
+  }
+
+  private handleNoClienteConsulta(session: Session, text: string): string[] {
+    // Si envía nombre completo, derivar a Iván
+    if (text.trim().length > 5) {
+      const nombre = text.trim().split(' ').map(word => 
+        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+      ).join(' ');
+      session.state = FSMState.HUMANO;
+      logger.info(`Sesión ${session.id} derivada a Iván Pos para consulta: ${nombre}`);
+      return [`${nombre} te derivamos con Iván Pos para revisar tu consulta. Te contactará a la brevedad. ¡Gracias!`];
+    }
+    
+    return [STATE_TEXTS[FSMState.NO_CLIENTE_CONSULTA]];
   }
 }
