@@ -7,7 +7,7 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 100%);
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   color: #1e293b;
   line-height: 1.6;
   min-height: 100vh;
@@ -24,14 +24,15 @@ body {
 h1 {
   font-size: 2.5rem;
   font-weight: 700;
-  color: #1e293b;
+  color: white;
   margin-bottom: 8px;
 }
 
 .subtitle {
-  color: #64748b;
+  color: white;
   font-size: 1.1rem;
   margin-bottom: 32px;
+  opacity: 0.9;
 }
 
 /* Cards */
@@ -252,6 +253,11 @@ h1 {
   font-size: 0.875rem;
 }
 
+.pagination-info-white {
+  color: white;
+  font-size: 0.875rem;
+}
+
 .pagination-controls {
   display: flex;
   gap: 8px;
@@ -320,6 +326,21 @@ h1 {
   .table th,
   .table td {
     padding: 12px 8px;
+  }
+  
+  /* En móvil, centrar la información de paginación */
+  .pagination {
+    flex-direction: column;
+    gap: 16px;
+    text-align: center;
+  }
+  
+  .pagination-info-white {
+    order: 2;
+  }
+  
+  .pagination-controls {
+    order: 1;
   }
 }
 

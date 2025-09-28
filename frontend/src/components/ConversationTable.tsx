@@ -168,7 +168,7 @@ export function ConversationTable({
       {/* Paginación */}
       {totalPages > 1 && (
         <div className="pagination">
-          <div className="pagination-info">
+          <div className="pagination-info-white">
             Mostrando {startItem} a {endItem} de {total} conversaciones
           </div>
           <div className="pagination-controls">
