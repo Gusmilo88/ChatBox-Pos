@@ -91,95 +91,62 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
   }
 
   return (
-    <Card className="h-full flex flex-col">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Phone className="h-5 w-5 text-muted-foreground" />
-              <span className="font-medium">{formatPhone(conversation.phone)}</span>
-            </div>
-            {conversation.name && (
-              <div className="flex items-center gap-2">
-                <User className="h-5 w-5 text-muted-foreground" />
-                <span className="font-medium">{conversation.name}</span>
-              </div>
-            )}
+    <div className="chat-container">
+      {/* Header de WhatsApp */}
+      <div className="chat-header">
+        <div className="chat-header-info">
+          <div className="chat-avatar">
+            {conversation.name ? conversation.name.charAt(0).toUpperCase() : '?'}
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={conversation.isClient ? "default" : "secondary"}>
-              {conversation.isClient ? "Cliente" : "No Cliente"}
-            </Badge>
-            {conversation.needsReply && (
-              <Badge variant="destructive" className="gap-1">
-                <AlertCircle className="h-3 w-3" />
-                Requiere respuesta
-              </Badge>
-            )}
+          <div className="chat-contact-info">
+            <div className="chat-contact-name">
+              {conversation.name || formatPhone(conversation.phone)}
+            </div>
+            <div className="chat-contact-status">
+              {conversation.isClient ? 'Cliente' : 'No Cliente'}
+            </div>
           </div>
         </div>
-      </CardHeader>
+        {conversation.needsReply && (
+          <div className="chat-urgent-badge">
+            <AlertCircle className="icon" />
+            Requiere respuesta
+          </div>
+        )}
+      </div>
 
-      <CardContent className="flex-1 flex flex-col min-h-0">
-        {/* Mensajes */}
-        <div className="flex-1 overflow-y-auto space-y-4 mb-4">
-          {conversation.messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${getMessageAlignment(message.from)}`}
-            >
-              <div className="flex gap-3 max-w-[80%]">
-                {message.from !== 'usuario' && (
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${getMessageColor(message.from)} flex-shrink-0`}>
-                    {getMessageIcon(message.from)}
-                  </div>
-                )}
-                
-                <div className={`space-y-1 ${message.from === 'usuario' ? 'order-1' : ''}`}>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{message.from === 'usuario' ? 'Tú' : message.from === 'operador' ? 'Operador' : 'Sistema'}</span>
-                    <span>•</span>
-                    <span>{formatTime(message.ts)}</span>
-                    {message.via && (
-                      <>
-                        <span>•</span>
-                        <Badge variant="outline" className="text-xs px-1 py-0">
-                          {message.via === 'whatsapp' ? 'WhatsApp' : message.via === 'ia' ? 'IA' : 'Manual'}
-                        </Badge>
-                      </>
-                    )}
-                    {message.aiSuggested && (
-                      <Badge variant="secondary" className="text-xs px-1 py-0 bg-blue-100 text-blue-700">
-                        Sugerido por IA
-                      </Badge>
-                    )}
-                  </div>
-                  
-                  <div className={`p-3 rounded-lg ${
-                    message.from === 'usuario' 
-                      ? 'bg-blue-500 text-white' 
-                      : 'bg-muted'
-                  }`}>
-                    <p className="whitespace-pre-wrap text-sm">
-                      {maskPII(message.text)}
-                    </p>
-                  </div>
-                </div>
-                
-                {message.from === 'usuario' && (
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${getMessageColor(message.from)} flex-shrink-0`}>
-                    {getMessageIcon(message.from)}
-                  </div>
-                )}
+      {/* Área de mensajes */}
+      <div className="chat-messages">
+        {conversation.messages.map((message) => (
+          <div
+            key={message.id}
+            className={`message-wrapper ${message.from === 'usuario' ? 'message-user' : 'message-system'}`}
+          >
+            <div className="message-bubble">
+              <div className="message-text">
+                {maskPII(message.text)}
+              </div>
+              <div className="message-meta">
+                <span className="message-time">{formatTime(message.ts)}</span>
+                {message.from === 'usuario' && <span className="message-status">✓✓</span>}
               </div>
             </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
+            <div className="message-avatar">
+              {message.from === 'usuario' ? 'Tú' : 
+               message.from === 'operador' ? 'Op' : 
+               'IA'}
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
 
-        {/* Input de mensaje */}
-        <div className="flex gap-2 pt-4 border-t">
-          <Input
+      </div>
+
+      {/* Input de mensaje estilo WhatsApp */}
+      <div className="chat-input-container">
+        <div className="chat-input">
+          <input
+            type="text"
             placeholder="Escribir mensaje... (próximamente)"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
@@ -190,21 +157,20 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
               }
             }}
             disabled
-            className="flex-1"
+            className="chat-input-field"
           />
-          <Button 
+          <button 
             onClick={handleSendMessage}
             disabled
-            size="icon"
+            className="chat-send-button"
           >
-            <Send className="h-4 w-4" />
-          </Button>
+            <Send className="icon" />
+          </button>
         </div>
-        
-        <p className="text-xs text-muted-foreground mt-2 text-center">
+        <div className="chat-input-hint">
           Función de envío de mensajes próximamente
-        </p>
-      </CardContent>
-    </Card>
+        </div>
+      </div>
+    </div>
   )
 }

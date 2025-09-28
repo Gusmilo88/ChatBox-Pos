@@ -99,15 +99,29 @@ export function ConversationDetailPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 h-screen flex flex-col">
-      <div className="mb-4">
-        <Button variant="ghost" onClick={handleBack} className="gap-2">
-          <ArrowLeft className="h-4 w-4" />
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* Botón volver */}
+      <div style={{ padding: '16px 20px', background: '#202c33', borderBottom: '1px solid #2a3942' }}>
+        <button
+          onClick={handleBack}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            fontSize: '14px'
+          }}
+        >
+          <ArrowLeft className="icon" />
           Volver
-        </Button>
+        </button>
       </div>
       
-      <div className="flex-1 min-h-0">
+      {/* Chat */}
+      <div style={{ flex: 1, minHeight: 0 }}>
         <ConversationDetail
           conversation={conversation}
           isLoading={false}
