@@ -3,23 +3,32 @@ import type {
   ConversationDetail, 
   ConversationFilters 
 } from '@/types/conversations'
-import { fetchConversations as mockFetchConversations, fetchConversationDetail as mockFetchConversationDetail } from './mock'
+import { 
+  getConversations as httpGetConversations, 
+  getConversationDetail as httpGetConversationDetail,
+  replyConversation as httpReplyConversation
+} from './http'
 
-// Adaptador que hoy usa mocks, mañana puede apuntar a HTTP/Firestore
+// Adaptador que usa HTTP real
 export const api = {
   conversations: {
     list: async (filters: ConversationFilters): Promise<ConversationListResponse> => {
-      // TODO: Reemplazar con fetch real cuando esté listo el backend
-      return mockFetchConversations(filters)
+      return httpGetConversations(filters)
     },
     
     get: async (id: string): Promise<ConversationDetail | null> => {
-      // TODO: Reemplazar con fetch real cuando esté listo el backend
-      return mockFetchConversationDetail(id)
+      return httpGetConversationDetail(id)
+    },
+
+    reply: async (id: string, text: string): Promise<void> => {
+      return httpReplyConversation(id, { text })
     }
-  }
+  },
+
+  // Sin autenticación - acceso directo desde la app PWZ
 }
 
 // Re-exportar para compatibilidad
 export const fetchConversations = api.conversations.list
 export const fetchConversationDetail = api.conversations.get
+export const replyConversation = api.conversations.reply

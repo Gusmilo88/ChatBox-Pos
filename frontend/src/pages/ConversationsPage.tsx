@@ -92,7 +92,7 @@ export function ConversationsPage() {
     )
   }
 
-  const hasResults = conversationsData && conversationsData.items.length > 0
+  const hasResults = conversationsData && conversationsData.conversations.length > 0
 
   return (
     <div className="container">
@@ -104,7 +104,7 @@ export function ConversationsPage() {
       </div>
 
       <ConversationFilters
-        exportData={conversationsData?.items}
+        exportData={conversationsData?.conversations}
         isLoading={isLoading}
         onExport={handleExport}
       />
@@ -130,7 +130,7 @@ export function ConversationsPage() {
         />
       ) : (
         <ConversationTable
-          conversations={conversationsData!.items}
+          conversations={conversationsData!.conversations}
           total={conversationsData!.total}
           page={conversationsData!.page}
           pageSize={conversationsData!.pageSize}

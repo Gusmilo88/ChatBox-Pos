@@ -22,18 +22,34 @@ function fromEnv(): ServiceAccount | null {
   return null
 }
 
-export function getDb() {
-  if (!getApps().length) {
-    const sa = fromEnv()
-    if (sa) initializeApp({ credential: cert(sa), projectId: sa.projectId })
-    else initializeApp({ credential: applicationDefault() }) // si hay GOOGLE_APPLICATION_CREDENTIALS
-  }
-  const db = getFirestore()
-  // Solo configurar settings si no se ha hecho antes
-  try {
-    db.settings({ ignoreUndefinedProperties: true })
-  } catch (error) {
-    // Ignorar error si ya se configuró
+let db: FirebaseFirestore.Firestore | null = null
+
+export function getDb(): FirebaseFirestore.Firestore {
+  if (!db) {
+    if (!getApps().length) {
+      const sa = fromEnv()
+      if (sa) {
+        initializeApp({ credential: cert(sa), projectId: sa.projectId })
+      } else {
+        initializeApp({ credential: applicationDefault() })
+      }
+    }
+    db = getFirestore()
+    // Solo configurar settings si no se ha hecho antes
+    try {
+      db.settings({ ignoreUndefinedProperties: true })
+    } catch (error) {
+      // Ignorar error si ya se configuró
+    }
   }
   return db
+}
+
+// Helpers para colecciones
+export const collections = {
+  conversations: () => getDb().collection('conversations'),
+  messages: (conversationId: string) => getDb().collection('conversations').doc(conversationId).collection('messages'),
+  outbox: () => getDb().collection('outbox'),
+  admins: () => getDb().collection('admins'),
+  audit: () => getDb().collection('audit')
 }

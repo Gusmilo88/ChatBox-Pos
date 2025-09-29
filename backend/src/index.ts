@@ -2,30 +2,37 @@ import './config/env';
 import express from 'express';
 import path from 'path';
 
-// Si tu logger es default export:
 import logger from './libs/logger';
-// Si no, usá console como fallback:
-// const logger = console as any;
-
-import { secureHeaders, buildCors, limiter, requireApiKey } from './security';
+import { 
+  secureHeaders, 
+  buildCors, 
+  globalRateLimit, 
+  requireApiKey 
+} from './middleware/security';
 import healthRouter from './routes/health';
 import simulateRouter from './routes/simulate';
 import whatsappRouter from './routes/whatsapp';
+import conversationsRouter from './routes/conversations';
+import authRouter from './routes/auth';
 
 const app = express();
 
-const PORT = Number(process.env.PORT || 3001);
+const PORT = Number(process.env.PORT || 4000);
 
 // Middlewares de seguridad (SOLO UNA VEZ y antes de las rutas)
 app.use(secureHeaders());
 app.use(buildCors());
 app.use(express.json({ limit: '200kb' }));
 app.use(express.urlencoded({ extended: true, limit: '200kb' }));
-app.use(limiter());
+app.use(globalRateLimit());
 
-// Rutas
+// Rutas públicas
 app.use('/health', healthRouter);              // GET /health → { ok: true }
+app.use('/auth', authRouter);                  // POST /auth/login, /auth/refresh
 app.use('/webhook/whatsapp', express.raw({ type: 'application/json' }), whatsappRouter); // WhatsApp webhook (raw body)
+
+// Rutas protegidas
+app.use('/api/conversations', conversationsRouter); // GET/POST /api/conversations/*
 app.use('/api', requireApiKey(), simulateRouter); // POST /api/simulate/message (protegido)
 
 // 404 catch-all (SIN '*')

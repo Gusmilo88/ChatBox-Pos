@@ -22,15 +22,17 @@ export type ConversationListItem = {
   name?: string
   isClient: boolean
   lastMessageAt: string // ISO
+  lastMessage?: string
   unreadCount: number
   needsReply: boolean
 }
 
 export type ConversationListResponse = {
-  items: ConversationListItem[]
+  conversations: ConversationListItem[]
   page: number
   pageSize: number
   total: number
+  hasMore?: boolean
 }
 
 export type ConversationFilters = {
@@ -40,6 +42,11 @@ export type ConversationFilters = {
   page: number
   isClient?: boolean
   needsReply?: boolean
+}
+
+export type ReplyRequest = {
+  text: string
+  idempotencyKey?: string
 }
 
 export type ExportData = {
