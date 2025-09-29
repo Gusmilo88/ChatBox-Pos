@@ -1,100 +1,89 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { login, refreshToken, createAdmin } from '../services/auth'
-import { requireAuth, requireRole, validateInput, auditLog } from '../middleware/security'
+import rateLimit from 'express-rate-limit'
+import { login, createSessionToken } from '../services/auth'
+import { createSessionCookie, clearSessionCookie, requireSession } from '../middleware/session'
+import { validateInput } from '../middleware/security'
 import logger from '../libs/logger'
 
 const router = Router()
 
+// Rate limiting para login
+const loginRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5, // 5 intentos por IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn('login_rate_limit_exceeded', {
+      ip: req.ip,
+      userAgent: req.get('User-Agent')
+    })
+    res.status(429).json({ error: 'Demasiados intentos de login. Intenta nuevamente en 15 minutos.' })
+  }
+})
+
 // Esquemas de validación
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
-  password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres')
-})
-
-const refreshTokenSchema = z.object({
-  refreshToken: z.string().min(1, 'Refresh token requerido')
-})
-
-const createAdminSchema = z.object({
-  email: z.string().email('Email inválido'),
-  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
-  role: z.enum(['owner', 'operador']).optional().default('operador')
+  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres')
 })
 
 // POST /auth/login - Iniciar sesión
 router.post('/login',
+  loginRateLimit,
   validateInput(loginSchema),
   async (req, res) => {
     try {
-      const result = await login(req.body)
-      res.json(result)
-    } catch (error) {
-      if (error.message === 'Credenciales inválidas') {
-        return res.status(401).json({ error: 'Credenciales inválidas' })
-      }
-      
-      logger.error('login_failed', { 
-        email: req.body.email,
-        error: error.message 
-      })
-      res.status(500).json({ error: 'Error interno del servidor' })
-    }
-  }
-)
+      const { email, password } = req.body
 
-// POST /auth/refresh - Renovar token
-router.post('/refresh',
-  validateInput(refreshTokenSchema),
-  async (req, res) => {
-    try {
-      const result = await refreshToken(req.body.refreshToken)
-      res.json(result)
-    } catch (error) {
-      if (error.message === 'Token de refresh inválido') {
-        return res.status(401).json({ error: 'Token de refresh inválido' })
-      }
-      
-      logger.error('refresh_failed', { error: error.message })
-      res.status(500).json({ error: 'Error interno del servidor' })
-    }
-  }
-)
-
-// POST /auth/create-admin - Crear administrador (solo owners)
-router.post('/create-admin',
-  requireAuth(),
-  requireRole(['owner']),
-  validateInput(createAdminSchema),
-  auditLog('admin_created'),
-  async (req, res) => {
-    try {
-      await createAdmin(req.body.email, req.body.password, req.body.role)
-      res.status(201).json({ message: 'Administrador creado exitosamente' })
-    } catch (error) {
-      logger.error('error_creating_admin', { 
-        email: req.body.email,
-        error: error.message 
-      })
-      res.status(500).json({ error: 'Error interno del servidor' })
-    }
-  }
-)
-
-// GET /auth/me - Obtener información del usuario actual
-router.get('/me',
-  requireAuth(),
-  async (req, res) => {
-    try {
-      res.json({
-        user: {
-          id: req.user.id,
-          email: req.user.email,
-          role: req.user.role
+      // TEMPORAL: Login hardcodeado para testing
+      if (email === 'admin@test.com' && password === 'password123') {
+        const user = {
+          adminId: 'temp-admin-id',
+          email: 'admin@test.com',
+          role: 'owner' as const
         }
+
+        // Crear token de sesión
+        const sessionToken = createSessionToken(user)
+
+        // Establecer cookie
+        res.setHeader('Set-Cookie', createSessionCookie(sessionToken))
+
+        logger.info('login_success', {
+          adminId: user.adminId,
+          email: user.email,
+          role: user.role,
+          ip: req.ip
+        })
+
+        res.json({
+          ok: true,
+          user: {
+            email: user.email,
+            role: user.role
+          }
+        })
+        return
+      }
+
+      // Autenticar usuario (Firebase - deshabilitado temporalmente)
+      // const user = await login(email, password)
+
+      logger.warn('login_failed_invalid_credentials', {
+        email: req.body.email,
+        ip: req.ip
       })
+      
+      res.status(401).json({ error: 'Credenciales inválidas' })
     } catch (error) {
-      logger.error('error_getting_user_info', { error: error.message })
+      logger.warn('login_failed', {
+        email: req.body.email,
+        ip: req.ip,
+        error: error.message
+      })
+      
       res.status(500).json({ error: 'Error interno del servidor' })
     }
   }
@@ -102,15 +91,36 @@ router.get('/me',
 
 // POST /auth/logout - Cerrar sesión
 router.post('/logout',
-  requireAuth(),
-  auditLog('user_logged_out'),
+  requireSession,
   async (req, res) => {
     try {
-      // En un sistema más complejo, aquí se invalidaría el token
-      // Por ahora solo logueamos el evento
-      res.json({ message: 'Sesión cerrada exitosamente' })
+      logger.info('user_logged_out', {
+        adminId: req.user!.adminId,
+        email: req.user!.email,
+        ip: req.ip
+      })
+
+      // Limpiar cookie
+      res.setHeader('Set-Cookie', clearSessionCookie())
+      res.json({ ok: true })
     } catch (error) {
       logger.error('logout_failed', { error: error.message })
+      res.status(500).json({ error: 'Error interno del servidor' })
+    }
+  }
+)
+
+// GET /auth/me - Obtener información del usuario actual
+router.get('/me',
+  requireSession,
+  async (req, res) => {
+    try {
+      res.json({
+        email: req.user!.email,
+        role: req.user!.role
+      })
+    } catch (error) {
+      logger.error('error_getting_user_info', { error: error.message })
       res.status(500).json({ error: 'Error interno del servidor' })
     }
   }

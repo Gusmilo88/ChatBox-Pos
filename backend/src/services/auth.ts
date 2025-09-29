@@ -1,180 +1,206 @@
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { collections } from '../firebase'
+import { config } from '../config/env'
 import logger from '../libs/logger'
-import type { LoginRequest, LoginResponse } from '../../shared/types/conversations'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production'
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key-change-in-production'
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30m'
-const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d'
 
 export interface AuthUser {
-  id: string
+  adminId: string
   email: string
   role: 'owner' | 'operador'
 }
 
-export async function login(request: LoginRequest): Promise<LoginResponse> {
-  try {
-    const { email, password } = request
+export interface AdminDoc {
+  email: string
+  passwordHash: string
+  role: 'owner' | 'operador'
+  createdAt: Date
+  lastLoginAt?: Date
+  isActive: boolean
+}
 
+// Login con validación contra Firestore
+export async function login(email: string, password: string): Promise<AuthUser> {
+  try {
+    const normalizedEmail = email.toLowerCase().trim()
+    
     // Buscar admin por email
     const adminSnapshot = await collections.admins()
-      .where('user', '==', email.toLowerCase())
+      .where('email', '==', normalizedEmail)
       .limit(1)
       .get()
 
     if (adminSnapshot.empty) {
+      logger.warn('login_failed_user_not_found', { email: normalizedEmail })
       throw new Error('Credenciales inválidas')
     }
 
     const adminDoc = adminSnapshot.docs[0]
-    const adminData = adminDoc.data()
+    const adminData = adminDoc.data() as AdminDoc
 
-    // Verificar contraseña (comparar directamente con el campo 'pass')
-    const isValidPassword = password === adminData.pass
+    // Verificar que esté activo
+    if (!adminData.isActive) {
+      logger.warn('login_failed_inactive_user', { adminId: adminDoc.id, email: normalizedEmail })
+      throw new Error('Usuario inactivo')
+    }
+
+    // Verificar contraseña
+    const isValidPassword = await bcrypt.compare(password, adminData.passwordHash)
     if (!isValidPassword) {
+      logger.warn('login_failed_invalid_password', { adminId: adminDoc.id, email: normalizedEmail })
       throw new Error('Credenciales inválidas')
     }
 
-    // Generar tokens
-    const user: AuthUser = {
-      id: adminDoc.id,
-      email: adminData.user, // Usar el campo 'user' como email
-      role: adminData.role || 'owner' // Asumir owner para el admin existente
-    }
-
-    const accessToken = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    )
-
-    const refreshToken = jwt.sign(
-      { userId: user.id, type: 'refresh' },
-      JWT_REFRESH_SECRET,
-      { expiresIn: JWT_REFRESH_EXPIRES_IN }
-    )
-
-    // Log de auditoría
-    await collections.audit().add({
-      action: 'login',
-      userId: user.id,
-      email: user.email,
-      timestamp: new Date(),
-      ip: null, // Se puede agregar si se pasa en el request
-      userAgent: null
+    // Actualizar lastLoginAt
+    await adminDoc.ref.update({
+      lastLoginAt: new Date()
     }).catch(err => {
-      // Si falla la auditoría, no interrumpir el login
-      logger.warn('audit_log_failed', { error: err.message })
+      logger.warn('failed_to_update_last_login', { adminId: adminDoc.id, error: err.message })
     })
 
+    const user: AuthUser = {
+      adminId: adminDoc.id,
+      email: adminData.email,
+      role: adminData.role
+    }
+
     logger.info('user_logged_in', {
-      userId: user.id,
+      adminId: user.adminId,
       email: user.email,
       role: user.role
     })
 
-    return {
-      accessToken,
-      refreshToken,
-      user: {
-        email: user.email,
-        role: user.role
-      }
-    }
+    return user
   } catch (error) {
-    logger.error('login_failed', { 
-      email: request.email, 
+    logger.error('login_error', { 
+      email: email.toLowerCase(), 
       error: error.message 
     })
-    throw new Error('Error al iniciar sesión')
+    throw error
   }
 }
 
-export async function verifyToken(token: string): Promise<AuthUser> {
+// Crear token de sesión
+export function createSessionToken(user: AuthUser): string {
+  return jwt.sign(
+    {
+      adminId: user.adminId,
+      email: user.email,
+      role: user.role,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + (config.sessionTTLMinutes * 60)
+    },
+    config.sessionSecret
+  )
+}
+
+// Verificar token de sesión
+export function verifySessionToken(token: string): AuthUser {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any
+    const decoded = jwt.verify(token, config.sessionSecret) as any
     
-    // Verificar que el usuario aún existe
-    const adminDoc = await collections.admins().doc(decoded.userId).get()
-    if (!adminDoc.exists) {
-      throw new Error('Usuario no encontrado')
+    // Verificar expiración
+    if (Date.now() >= decoded.exp * 1000) {
+      throw new Error('Token expirado')
     }
 
-    const adminData = adminDoc.data()
-    
     return {
-      id: adminDoc.id,
-      email: adminData.email,
-      role: adminData.role || 'operador'
+      adminId: decoded.adminId,
+      email: decoded.email,
+      role: decoded.role
     }
   } catch (error) {
-    logger.error('token_verification_failed', { error: error.message })
-    throw new Error('Token inválido')
+    logger.warn('session_token_verification_failed', { error: error.message })
+    throw new Error('Token de sesión inválido')
   }
 }
 
-export async function refreshToken(refreshToken: string): Promise<{ accessToken: string }> {
+// Crear admin
+export async function createAdmin(email: string, password: string, role: 'owner' | 'operador' = 'operador'): Promise<string> {
   try {
-    const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as any
+    const normalizedEmail = email.toLowerCase().trim()
     
-    if (decoded.type !== 'refresh') {
-      throw new Error('Token de refresh inválido')
+    // Verificar que no exista
+    const existingSnapshot = await collections.admins()
+      .where('email', '==', normalizedEmail)
+      .limit(1)
+      .get()
+
+    if (!existingSnapshot.empty) {
+      throw new Error('El email ya está registrado')
     }
 
-    // Verificar que el usuario aún existe
-    const adminDoc = await collections.admins().doc(decoded.userId).get()
-    if (!adminDoc.exists) {
-      throw new Error('Usuario no encontrado')
-    }
-
-    const adminData = adminDoc.data()
-    
-    const accessToken = jwt.sign(
-      { 
-        userId: adminDoc.id, 
-        email: adminData.email, 
-        role: adminData.role || 'operador' 
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    )
-
-    logger.info('token_refreshed', {
-      userId: adminDoc.id,
-      email: adminData.email
-    })
-
-    return { accessToken }
-  } catch (error) {
-    logger.error('refresh_token_failed', { error: error.message })
-    throw new Error('Token de refresh inválido')
-  }
-}
-
-export async function createAdmin(email: string, password: string, role: 'owner' | 'operador' = 'operador'): Promise<void> {
-  try {
     const passwordHash = await bcrypt.hash(password, 12)
     
-    await collections.admins().add({
-      email: email.toLowerCase(),
+    const adminRef = await collections.admins().add({
+      email: normalizedEmail,
       passwordHash,
       role,
       createdAt: new Date(),
-      updatedAt: new Date()
+      isActive: true
     })
 
     logger.info('admin_created', {
-      email,
+      adminId: adminRef.id,
+      email: normalizedEmail,
       role
     })
+
+    return adminRef.id
   } catch (error) {
     logger.error('error_creating_admin', { 
-      email, 
+      email: email.toLowerCase(), 
       error: error.message 
     })
-    throw new Error('Error al crear administrador')
+    throw error
+  }
+}
+
+// Migrar contraseñas en texto plano a bcrypt
+export async function migratePasswords(): Promise<{ migrated: number, errors: string[] }> {
+  const errors: string[] = []
+  let migrated = 0
+
+  try {
+    const snapshot = await collections.admins().get()
+    
+    for (const doc of snapshot.docs) {
+      const data = doc.data()
+      
+      // Si tiene 'pass' (texto plano) y no tiene 'passwordHash'
+      if (data.pass && !data.passwordHash) {
+        try {
+          const passwordHash = await bcrypt.hash(data.pass, 12)
+          
+          await doc.ref.update({
+            email: data.user?.toLowerCase() || data.email?.toLowerCase(),
+            passwordHash,
+            role: data.role || 'operador',
+            createdAt: data.createdAt || new Date(),
+            isActive: data.isActive !== false,
+            lastLoginAt: data.lastLoginAt || null
+          })
+
+          // Eliminar campos antiguos
+          await doc.ref.update({
+            pass: null,
+            user: null
+          })
+
+          migrated++
+          logger.info('password_migrated', { adminId: doc.id })
+        } catch (error) {
+          const errorMsg = `Error migrando admin ${doc.id}: ${error.message}`
+          errors.push(errorMsg)
+          logger.error('password_migration_error', { adminId: doc.id, error: error.message })
+        }
+      }
+    }
+
+    logger.info('password_migration_completed', { migrated, errors: errors.length })
+    return { migrated, errors }
+  } catch (error) {
+    logger.error('password_migration_failed', { error: error.message })
+    throw error
   }
 }

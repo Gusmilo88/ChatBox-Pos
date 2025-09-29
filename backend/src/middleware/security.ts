@@ -6,16 +6,16 @@ import type { Request, Response, NextFunction } from 'express'
 import logger from '../libs/logger'
 import { collections } from '../firebase'
 import type { AuthUser } from '../services/auth'
+import { config } from '../config/env'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production'
 const DASHBOARD_API_KEY = process.env.DASHBOARD_API_KEY || ''
 
 // CORS estricto
 export function buildCors() {
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
-    .split(',')
-    .map(s => s.trim())
+  const allowedOrigins = [config.corsOrigin, config.dashboardOrigin]
     .filter(Boolean)
+    .map(s => s.trim())
 
   return cors({
     origin: (origin, callback) => {

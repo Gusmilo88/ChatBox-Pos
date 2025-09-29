@@ -12,6 +12,8 @@
     "seed:conversations": "tsx src/scripts/seed-conversations.ts",
     "create:admin": "tsx src/scripts/create-admin.ts",
     "simulate:one": "tsx src/scripts/simulate-one.ts",
+    "admin:add": "tsx src/scripts/admin-add.ts",
+    "admin:migrate": "tsx src/scripts/admin-migrate.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -19,7 +21,9 @@
   "license": "ISC",
   "description": "Backend para automatización de POS con chatbot FSM",
   "dependencies": {
+    "@types/cookie-parser": "^1.4.9",
     "bcrypt": "^5.1.1",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dayjs": "^1.11.10",
     "dotenv": "^17.2.2",

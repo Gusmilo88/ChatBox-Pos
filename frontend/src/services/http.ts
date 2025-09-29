@@ -13,6 +13,7 @@ async function apiRequest<T>(
 ): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
+    credentials: 'include', // Incluir cookies en todas las requests
     headers: {
       'Content-Type': 'application/json',
       ...options.headers
@@ -61,4 +62,4 @@ export async function replyConversation(id: string, request: ReplyRequest): Prom
   })
 }
 
-// Sin autenticación - acceso directo desde la app PWZ
+// Autenticación via cookies HttpOnly
