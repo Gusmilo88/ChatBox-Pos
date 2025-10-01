@@ -83,6 +83,42 @@ router.get('/:id',
         return res.status(400).json({ error: 'ID de conversación inválido' })
       }
 
+      // TEMPORAL: Devolver datos mock para probar
+      if (id === 'ocjQTrpJW87IZaSkPBYb') {
+        const mockConversation = {
+          id: 'ocjQTrpJW87IZaSkPBYb',
+          phone: '541151093439',
+          name: 'Juan Pérez',
+          isClient: false,
+          needsReply: false,
+          messages: [
+            {
+              id: 'msg1',
+              text: 'Hola, necesito información sobre los servicios',
+              from: '541151093439',
+              timestamp: '2025-01-28T23:47:49.000Z',
+              isFromUs: false
+            },
+            {
+              id: 'msg2', 
+              text: '¡Hola Juan! Te ayudo con la información. ¿Qué servicio específicamente te interesa?',
+              from: 'system',
+              timestamp: '2025-01-28T23:48:15.000Z',
+              isFromUs: true
+            },
+            {
+              id: 'msg3',
+              text: 'Me interesa saber sobre el plan básico y los precios',
+              from: '541151093439', 
+              timestamp: '2025-01-28T23:49:30.000Z',
+              isFromUs: false
+            }
+          ]
+        }
+        res.json(mockConversation)
+        return
+      }
+
       const conversation = await getConversationById(id)
       res.json(conversation)
     } catch (error) {

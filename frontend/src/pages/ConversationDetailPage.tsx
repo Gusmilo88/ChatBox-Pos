@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, AlertCircle } from 'lucide-react'
+import { ArrowLeft, AlertCircle, Video, Phone, MoreVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConversationDetail } from '@/components/ConversationDetail'
 import { EmptyState } from '@/components/EmptyState'
@@ -99,25 +99,37 @@ export function ConversationDetailPage() {
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Botón volver */}
-      <div style={{ padding: '16px 20px', background: '#202c33', borderBottom: '1px solid #2a3942' }}>
+    <div className="whatsapp-chat-container">
+      {/* Botón volver integrado en el header */}
+      <div className="whatsapp-header">
         <button
           onClick={handleBack}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'white',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            cursor: 'pointer',
-            fontSize: '14px'
-          }}
+          className="whatsapp-back-btn"
         >
-          <ArrowLeft className="icon" />
-          Volver
+          <ArrowLeft size={20} />
         </button>
+        <div className="whatsapp-avatar">
+          {conversation.name ? conversation.name.charAt(0).toUpperCase() : '?'}
+        </div>
+        <div className="whatsapp-contact-info">
+          <div className="whatsapp-contact-name">
+            {conversation.name || conversation.phone}
+          </div>
+          <div className="whatsapp-contact-status">
+            {conversation.isClient ? 'Cliente' : 'No Cliente'}
+          </div>
+        </div>
+        <div className="whatsapp-header-actions">
+          <button className="whatsapp-header-icon">
+            <Video size={20} />
+          </button>
+          <button className="whatsapp-header-icon">
+            <Phone size={20} />
+          </button>
+          <button className="whatsapp-header-icon">
+            <MoreVertical size={20} />
+          </button>
+        </div>
       </div>
       
       {/* Chat */}
