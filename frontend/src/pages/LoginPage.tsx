@@ -135,6 +135,34 @@ export function LoginPage() {
           </button>
         </form>
 
+        {/* Credenciales de prueba - TEMPORAL */}
+        <div style={{
+          marginTop: '20px',
+          padding: '12px',
+          backgroundColor: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: '8px',
+          textAlign: 'center'
+        }}>
+          <p style={{
+            margin: '0 0 8px 0',
+            fontSize: '14px',
+            fontWeight: '600',
+            color: '#475569'
+          }}>
+            🔑 Credenciales de prueba:
+          </p>
+          <div style={{
+            fontSize: '13px',
+            color: '#64748b',
+            fontFamily: 'monospace',
+            lineHeight: '1.4'
+          }}>
+            <div>admin@test.com</div>
+            <div>password123</div>
+          </div>
+        </div>
+
         {/* Footer */}
         <div className="login-footer">
           <p>Dashboard de WhatsApp Business</p>
