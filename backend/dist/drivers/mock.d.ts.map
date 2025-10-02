@@ -1,0 +1,1 @@
+{"version":3,"file":"mock.d.ts","sourceRoot":"","sources":["../../src/drivers/mock.ts"],"names":[],"mappings":"AACA,OAAO,EAAE,cAAc,EAAE,kBAAkB,EAAE,MAAM,kBAAkB,CAAA;AAGrE;;;GAGG;AACH,qBAAa,kBAAmB,YAAW,cAAc;IACjD,QAAQ,CAAC,IAAI,EAAE;QACnB,KAAK,EAAE,MAAM,CAAA;QACb,IAAI,EAAE,MAAM,CAAA;QACZ,cAAc,CAAC,EAAE,MAAM,CAAA;KACxB,GAAG,OAAO,CAAC,kBAAkB,CAAC;CAsChC"}

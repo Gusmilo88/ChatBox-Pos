@@ -802,6 +802,14 @@ h1 {
   color: #53bdeb;
 }
 
+.whatsapp-message-status.pending {
+  color: #ffa726;
+}
+
+.whatsapp-message-status.failed {
+  color: #f44336;
+}
+
 /* Input area */
 .whatsapp-input-container {
   background: #f0f0f0;

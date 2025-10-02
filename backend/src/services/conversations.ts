@@ -1,15 +1,15 @@
 import { collections } from '../firebase'
 import { v4 as uuidv4 } from 'uuid'
 import logger from '../libs/logger'
-import type { 
-  ConversationListItem, 
-  ConversationListResponse, 
-  ConversationDetail, 
-  Message, 
+import type {
+  ConversationListItem,
+  ConversationListResponse,
+  ConversationDetail,
+  Message,
   IncomingMessageRequest,
   ReplyRequest,
   OutboxMessage
-} from '../../shared/types/conversations'
+} from '../types/conversations'
 
 // Normalizar phone a E.164
 function normalizePhone(phone: string): string {
@@ -154,15 +154,15 @@ export async function getConversationById(id: string): Promise<ConversationDetai
     const conversationData = conversationDoc.data()
     
     // Obtener mensajes
-    const messagesSnapshot = await collections.messages(id)
-      .orderBy('ts', 'asc')
+    const messagesSnapshot = await conversationDoc.ref.collection('messages')
+      .orderBy('timestamp', 'asc')
       .get()
 
     const messages: Message[] = messagesSnapshot.docs.map(doc => {
       const data = doc.data()
       return {
         id: doc.id,
-        ts: data.ts?.toDate?.()?.toISOString() || new Date().toISOString(),
+        timestamp: data.timestamp || data.ts?.toDate?.()?.toISOString() || new Date().toISOString(),
         from: data.from,
         text: data.text,
         via: data.via,
@@ -294,31 +294,14 @@ export async function enqueueReply(conversationId: string, request: ReplyRequest
     const conversationData = conversationDoc.data()
     const now = new Date()
 
-    // Crear mensaje en outbox
-    const outboxId = uuidv4()
-    const outboxData: OutboxMessage = {
-      id: outboxId,
+    // 1. Agregar mensaje del operador a la conversación (optimista)
+    await appendOperatorMessage(conversationId, sanitizedText)
+
+    // 2. Encolar en outbox para envío
+    await enqueueOutbox(conversationId, conversationData.phone, sanitizedText, idempotencyKey)
+
+    logger.info('reply_enqueued_successfully', {
       conversationId,
-      phone: conversationData.phone,
-      text: sanitizedText,
-      createdAt: now.toISOString(),
-      status: 'pending',
-      tries: 0,
-      idempotencyKey
-    }
-
-    await collections.outbox().doc(outboxId).set(outboxData)
-
-    // Actualizar conversación
-    await collections.conversations().doc(conversationId).update({
-      lastMessageAt: now,
-      needsReply: false,
-      updatedAt: now
-    })
-
-    logger.info('reply_enqueued', {
-      conversationId,
-      outboxId,
       phone: maskPII(conversationData.phone),
       textLength: sanitizedText.length,
       idempotencyKey
@@ -329,5 +312,144 @@ export async function enqueueReply(conversationId: string, request: ReplyRequest
       error: error.message 
     })
     throw new Error('Error al encolar respuesta')
+  }
+}
+
+/**
+ * Helper para agregar mensaje del operador a una conversación
+ */
+export async function appendOperatorMessage(
+  conversationId: string, 
+  text: string
+): Promise<string> {
+  try {
+    const conversationRef = collections.conversations().doc(conversationId)
+    
+    // Verificar que la conversación existe
+    const conversationDoc = await conversationRef.get()
+    if (!conversationDoc.exists) {
+      throw new Error('Conversación no encontrada')
+    }
+
+    const now = new Date()
+    const messageId = uuidv4()
+    
+    // Crear mensaje
+    const message: Message = {
+      id: messageId,
+      text: sanitizeText(text),
+      from: 'operador',
+      timestamp: now.toISOString(),
+      isFromUs: true,
+      deliveryStatus: 'pending'
+    }
+
+    // Guardar mensaje en subcolección
+    await conversationRef.collection('messages').doc(messageId).set(message)
+
+    // Actualizar conversación
+    await conversationRef.update({
+      lastMessageAt: now.toISOString(),
+      lastMessage: sanitizeText(text),
+      unreadCount: 0, // Para el operador
+      updatedAt: now.toISOString()
+    })
+
+    logger.info('operator_message_added', {
+      conversationId,
+      messageId,
+      textLength: text.length
+    })
+
+    return messageId
+  } catch (error) {
+    logger.error('error_adding_operator_message', {
+      conversationId,
+      error: error.message
+    })
+    throw error
+  }
+}
+
+/**
+ * Helper para encolar mensaje en outbox
+ */
+export async function enqueueOutbox(
+  conversationId: string,
+  phone: string,
+  text: string,
+  idempotencyKey?: string
+): Promise<string> {
+  try {
+    const outboxId = uuidv4()
+    const now = new Date()
+
+    const outboxData = {
+      id: outboxId,
+      conversationId,
+      phone: normalizePhone(phone),
+      text: sanitizeText(text),
+      createdAt: now,
+      status: 'pending',
+      tries: 0,
+      idempotencyKey
+    }
+
+    await collections.outbox().doc(outboxId).set(outboxData)
+
+    logger.info('message_enqueued', {
+      conversationId,
+      outboxId,
+      phone: maskPII(phone),
+      textLength: text.length,
+      idempotencyKey
+    })
+
+    return outboxId
+  } catch (error) {
+    logger.error('error_enqueuing_message', {
+      conversationId,
+      error: error.message
+    })
+    throw error
+  }
+}
+
+/**
+ * Helper para marcar estado de entrega de un mensaje
+ */
+export async function markMessageDelivery(
+  conversationId: string,
+  messageId: string,
+  status: 'sent' | 'failed'
+): Promise<void> {
+  try {
+    const conversationRef = collections.conversations().doc(conversationId)
+    const messageRef = conversationRef.collection('messages').doc(messageId)
+
+    // Verificar que el mensaje existe
+    const messageDoc = await messageRef.get()
+    if (!messageDoc.exists) {
+      throw new Error('Mensaje no encontrado')
+    }
+
+    // Actualizar estado de entrega
+    await messageRef.update({
+      deliveryStatus: status,
+      deliveryUpdatedAt: new Date().toISOString()
+    })
+
+    logger.info('message_delivery_updated', {
+      conversationId,
+      messageId,
+      status
+    })
+  } catch (error) {
+    logger.error('error_updating_delivery_status', {
+      conversationId,
+      messageId,
+      error: error.message
+    })
+    throw error
   }
 }

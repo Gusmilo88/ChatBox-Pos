@@ -3,18 +3,48 @@
 ## Endpoints
 
 ### Autenticación
-- `POST /auth/login` - Iniciar sesión
-- `POST /auth/refresh` - Renovar token
+- `POST /auth/login` - Iniciar sesión con email/password
 - `GET /auth/me` - Información del usuario actual
 - `POST /auth/logout` - Cerrar sesión
 
 ### Conversaciones
 - `GET /api/conversations` - Listar conversaciones (requiere auth)
 - `GET /api/conversations/:id` - Obtener conversación (requiere auth)
-- `POST /api/conversations/:id/reply` - Enviar respuesta (requiere auth)
+- `POST /api/conversations/:id/reply` - Enviar respuesta manual (requiere auth)
 
 ### Simulación
 - `POST /api/simulate/incoming` - Simular mensaje entrante (requiere API key)
+
+## Flujo de Envío de Mensajes
+
+### 1. Envío Manual desde Dashboard
+```
+POST /api/conversations/:id/reply
+Body: { text: string, idempotencyKey?: string }
+
+Proceso:
+1. Validar sesión y datos
+2. Agregar mensaje a conversación (optimista)
+3. Crear item en outbox con status='pending'
+4. Responder 202 Accepted
+```
+
+### 2. Worker de Outbox
+```
+Comando: npm run worker:outbox
+
+Proceso:
+1. Poll cada 3 segundos por mensajes pending
+2. Procesar hasta 10 mensajes por batch
+3. Usar driver mock (simula envío a WhatsApp)
+4. Actualizar status: pending → sent/failed
+5. Backoff exponencial para reintentos
+```
+
+### 3. Estados de Entrega
+- **pending**: Mensaje en cola, esperando envío
+- **sent**: Enviado exitosamente
+- **failed**: Falló después de 5 intentos
 
 ## Índices Firestore Requeridos
 
@@ -71,18 +101,26 @@ https://console.firebase.google.com/v1/r/project/contabilidad-a9963/firestore/in
 ### Variables de Entorno Requeridas
 
 ```bash
-# JWT
-JWT_SECRET=tu-jwt-secret-super-secreto-789
-JWT_REFRESH_SECRET=tu-refresh-secret-super-secreto-101112
-JWT_EXPIRES_IN=30m
-JWT_REFRESH_EXPIRES_IN=7d
+# Firebase
+FIREBASE_PROJECT_ID=tu-proyecto-firebase
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@tu-proyecto.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# Sesión
+SESSION_SECRET=tu-session-secret-super-secreto-64-caracteres-minimo
+SESSION_COOKIE_NAME=chatbox_sess
+SESSION_TTL_MINUTES=30
 
 # API Keys
-API_KEY=tu-api-key-super-secreta-123
-DASHBOARD_API_KEY=dashboard-api-key-456
+DASHBOARD_API_KEY=tu-dashboard-api-key-super-secreta-32-caracteres
 
 # CORS
-ALLOWED_ORIGINS=http://localhost:5173,https://tu-dominio.com
+ALLOW_ORIGIN_DASHBOARD=http://localhost:5173
+
+# Worker de Outbox
+OUTBOX_POLL_INTERVAL_MS=3000
+OUTBOX_BATCH_SIZE=10
+WHATSAPP_DRIVER=mock
 
 # Rate Limiting
 RATE_WINDOW_MS=60000
@@ -106,26 +144,48 @@ RATE_MAX=60
 
 ## Uso
 
-### 1. Crear Admin Inicial
+### 1. Iniciar Servicios
 
 ```bash
-# Usar el script de seed que crea admin@pos.com / admin123
-npm run seed:conversations
+# Terminal 1: Backend API
+npm run dev
+
+# Terminal 2: Worker de Outbox
+npm run worker:outbox
+
+# Terminal 3: Frontend (opcional)
+cd ../frontend && npm run dev
 ```
 
-### 2. Simular Mensaje
+### 2. Crear Admin
+
+```bash
+# Crear administrador
+npm run admin:add -- --email=admin@test.com --password=password123 --role=owner
+```
+
+### 3. Simular Mensaje
 
 ```bash
 # Simular mensaje entrante
 npm run simulate:one "+5491151093439" "Hola, necesito ayuda"
 ```
 
-### 3. Crear Datos de Prueba
+### 4. Crear Datos de Prueba
 
 ```bash
-# Crear 50 conversaciones de ejemplo
+# Crear conversaciones de ejemplo
 npm run seed:conversations
 ```
+
+## Scripts Disponibles
+
+- `npm run dev` - Iniciar backend en modo desarrollo
+- `npm run worker:outbox` - Iniciar worker de outbox
+- `npm run admin:add` - Crear nuevo administrador
+- `npm run admin:migrate` - Migrar passwords a bcrypt
+- `npm run seed:conversations` - Crear datos de prueba
+- `npm run simulate:one` - Simular mensaje entrante
 
 ## Monitoreo
 

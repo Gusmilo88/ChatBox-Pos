@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { ArrowLeft, Send, Phone, Video, MoreVertical, Smile, Paperclip } from 'lucide-react'
+import { ArrowLeft, Send, Phone, Video, MoreVertical, Smile, Paperclip, AlertCircle } from 'lucide-react'
 import { formatPhone, formatTime } from '@/utils/format'
 import { maskPII } from '@/utils/mask'
+import { replyConversation } from '@/services/http'
 import type { ConversationDetail, Message } from '@/types/conversations'
 
 interface ConversationDetailProps {
@@ -11,6 +12,8 @@ interface ConversationDetailProps {
 
 export function ConversationDetail({ conversation, isLoading }: ConversationDetailProps) {
   const [newMessage, setNewMessage] = useState('')
+  const [isSending, setIsSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -21,10 +24,58 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
     scrollToBottom()
   }, [conversation.messages])
 
-  const handleSendMessage = () => {
-    // TODO: Implementar envío de mensajes cuando esté listo
-    console.log('Enviar mensaje:', newMessage)
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || isSending) return
+
+    const messageText = newMessage.trim()
+    setIsSending(true)
+    setSendError(null)
+
+    // OPTIMISTA: Agregar mensaje inmediatamente al chat
+    const optimisticMessage = {
+      id: `temp-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      from: 'operador' as const,
+      text: messageText,
+      deliveryStatus: 'pending' as const
+    }
+
+    // Actualizar la conversación con el mensaje optimista
+    conversation.messages.push(optimisticMessage)
+    
+    // Limpiar input inmediatamente
     setNewMessage('')
+    
+    // Scroll hacia abajo para ver el mensaje
+    setTimeout(scrollToBottom, 100)
+
+    try {
+      // Generar idempotency key único
+      const idempotencyKey = `manual-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      
+      await replyConversation(conversation.id, {
+        text: messageText,
+        idempotencyKey
+      })
+
+      // Actualizar estado del mensaje a "enviado"
+      const messageIndex = conversation.messages.findIndex(m => m.id === optimisticMessage.id)
+      if (messageIndex !== -1) {
+        conversation.messages[messageIndex].deliveryStatus = 'sent'
+      }
+      
+    } catch (error) {
+      console.error('Error enviando mensaje:', error)
+      setSendError(error instanceof Error ? error.message : 'Error al enviar mensaje')
+      
+      // Actualizar estado del mensaje a "fallido"
+      const messageIndex = conversation.messages.findIndex(m => m.id === optimisticMessage.id)
+      if (messageIndex !== -1) {
+        conversation.messages[messageIndex].deliveryStatus = 'failed'
+      }
+    } finally {
+      setIsSending(false)
+    }
   }
 
   const formatMessageTime = (timestamp: string) => {
@@ -95,7 +146,13 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
                     {formatMessageTime(message.timestamp)}
                   </span>
                   {isFromUs && (
-                    <span className="whatsapp-message-status read">✓✓</span>
+                    <span className={`whatsapp-message-status ${
+                      message.deliveryStatus === 'sent' ? 'read' : 
+                      message.deliveryStatus === 'failed' ? 'failed' : 'pending'
+                    }`}>
+                      {message.deliveryStatus === 'sent' ? '✓✓' : 
+                       message.deliveryStatus === 'failed' ? '✗' : '⏳'}
+                    </span>
                   )}
                   {!isFromUs && (
                     <span className="whatsapp-ai-badge">IA</span>
@@ -116,7 +173,7 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
           </button>
           <input
             type="text"
-            placeholder="Escribir mensaje... (próximamente)"
+            placeholder="Escribir mensaje..."
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyPress={(e) => {
@@ -125,7 +182,7 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
                 handleSendMessage()
               }
             }}
-            disabled
+            disabled={isSending}
             className="whatsapp-input-field"
           />
           <button className="whatsapp-input-icon">
@@ -133,15 +190,39 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
           </button>
           <button 
             onClick={handleSendMessage}
-            disabled
+            disabled={!newMessage.trim() || isSending}
             className="whatsapp-send-button"
           >
-            <Send size={16} />
+            {isSending ? (
+              <div style={{
+                width: '16px',
+                height: '16px',
+                border: '2px solid rgba(255,255,255,0.3)',
+                borderTop: '2px solid white',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite'
+              }} />
+            ) : (
+              <Send size={16} />
+            )}
           </button>
         </div>
-        <div className="whatsapp-input-hint">
-          Función de envío de mensajes próximamente
-        </div>
+        {sendError && (
+          <div style={{
+            color: '#dc2626',
+            fontSize: '12px',
+            textAlign: 'center',
+            marginTop: '6px',
+            padding: '0 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px'
+          }}>
+            <AlertCircle size={12} />
+            {sendError}
+          </div>
+        )}
       </div>
     </>
   )

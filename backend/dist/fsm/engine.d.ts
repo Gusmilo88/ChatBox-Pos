@@ -24,5 +24,10 @@ export declare class FSMSessionManager {
     private handleClienteVentas;
     private handleClienteReunion;
     private handleClienteIvan;
+    private handleNoClienteAlta;
+    private handleNoClienteAltaReqs;
+    private handleNoClientePlan;
+    private handleNoClienteResponsable;
+    private handleNoClienteConsulta;
 }
 //# sourceMappingURL=engine.d.ts.map

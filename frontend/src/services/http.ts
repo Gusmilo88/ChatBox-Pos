@@ -4,7 +4,7 @@ import type {
   ReplyRequest 
 } from '@/types/conversations'
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000'
+const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 // Helper para hacer requests
 async function apiRequest<T>(

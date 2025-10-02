@@ -8,6 +8,13 @@ export declare const config: {
     openaiModel: string;
     aiMaxTokens: number;
     aiTemperature: number;
+    sessionCookieName: string;
+    sessionTTLMinutes: number;
+    sessionSecret: string;
+    dashboardOrigin: string;
+    outboxPollIntervalMs: number;
+    outboxBatchSize: number;
+    whatsappDriver: "mock" | "cloud" | "local";
 };
 export default config;
 //# sourceMappingURL=env.d.ts.map

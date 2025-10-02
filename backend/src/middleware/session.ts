@@ -21,11 +21,20 @@ export function requireSession(req: Request, res: Response, next: NextFunction) 
   try {
     const token = req.cookies?.[config.sessionCookieName]
     
+    logger.debug('session_check', {
+      path: req.path,
+      hasCookies: !!req.cookies,
+      cookieName: config.sessionCookieName,
+      hasToken: !!token,
+      tokenLength: token?.length || 0
+    })
+    
     if (!token) {
       logger.warn('session_missing', {
         ip: req.ip,
         path: req.path,
-        userAgent: req.get('User-Agent')
+        userAgent: req.get('User-Agent'),
+        cookies: Object.keys(req.cookies || {})
       })
       return res.status(401).json({ error: 'No autenticado' })
     }
@@ -72,10 +81,19 @@ export function requireRole(roles: string[]) {
 export function createSessionCookie(token: string): string {
   const maxAge = config.sessionTTLMinutes * 60 // convertir a segundos
   
-  return `${config.sessionCookieName}=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}; Path=/`
+  // En desarrollo local, no usar Secure ni SameSite=Strict
+  const isProduction = process.env.NODE_ENV === 'production'
+  const secureFlag = isProduction ? 'Secure' : ''
+  const sameSiteFlag = isProduction ? 'SameSite=Strict' : 'SameSite=Lax'
+  
+  return `${config.sessionCookieName}=${token}; HttpOnly; ${secureFlag}; ${sameSiteFlag}; Max-Age=${maxAge}; Path=/`
 }
 
 // Limpiar cookie de sesión
 export function clearSessionCookie(): string {
-  return `${config.sessionCookieName}=; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Path=/`
+  const isProduction = process.env.NODE_ENV === 'production'
+  const secureFlag = isProduction ? 'Secure' : ''
+  const sameSiteFlag = isProduction ? 'SameSite=Strict' : 'SameSite=Lax'
+  
+  return `${config.sessionCookieName}=; HttpOnly; ${secureFlag}; ${sameSiteFlag}; Max-Age=0; Path=/`
 }

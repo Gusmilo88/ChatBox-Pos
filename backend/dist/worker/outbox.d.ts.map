@@ -1,0 +1,1 @@
+{"version":3,"file":"outbox.d.ts","sourceRoot":"","sources":["../../src/worker/outbox.ts"],"names":[],"mappings":"AAAA,OAAO,eAAe,CAAA;AAOtB,cAAM,YAAY;IAChB,OAAO,CAAC,MAAM,CAAsB;IACpC,OAAO,CAAC,SAAS,CAAQ;IACzB,OAAO,CAAC,UAAU,CAAC,CAAgB;IAE7B,KAAK;IAwBL,IAAI;YAeI,YAAY;YAgCZ,cAAc;YA4Gd,uBAAuB;YAyBvB,+BAA+B;IA4B7C,OAAO,CAAC,eAAe;CAKxB;AAgCD,OAAO,EAAE,YAAY,EAAE,CAAA"}

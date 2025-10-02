@@ -19,7 +19,11 @@ export const config = {
   sessionCookieName: process.env.SESSION_COOKIE_NAME || 'chatbox_sess',
   sessionTTLMinutes: parseInt(process.env.SESSION_TTL_MINUTES || '30', 10),
   sessionSecret: process.env.SESSION_SECRET || 'change-this-secret-in-production',
-  dashboardOrigin: process.env.ALLOW_ORIGIN_DASHBOARD || 'http://localhost:5173'
+  dashboardOrigin: process.env.ALLOW_ORIGIN_DASHBOARD || 'http://localhost:5173',
+  // Outbox Worker Configuration
+  outboxPollIntervalMs: parseInt(process.env.OUTBOX_POLL_INTERVAL_MS || '3000', 10),
+  outboxBatchSize: parseInt(process.env.OUTBOX_BATCH_SIZE || '10', 10),
+  whatsappDriver: (process.env.WHATSAPP_DRIVER || 'mock') as 'mock' | 'cloud' | 'local'
 };
 
 export default config;
