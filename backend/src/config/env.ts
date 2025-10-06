@@ -23,7 +23,10 @@ export const config = {
   // Outbox Worker Configuration
   outboxPollIntervalMs: parseInt(process.env.OUTBOX_POLL_INTERVAL_MS || '3000', 10),
   outboxBatchSize: parseInt(process.env.OUTBOX_BATCH_SIZE || '10', 10),
-  whatsappDriver: (process.env.WHATSAPP_DRIVER || 'mock') as 'mock' | 'cloud' | 'local'
+  whatsappDriver: (process.env.WHATSAPP_DRIVER || 'mock') as 'mock' | 'cloud' | 'local',
+  // WhatsApp Cloud API Configuration
+  whatsappToken: process.env.WHATSAPP_TOKEN || '',
+  whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || ''
 };
 
 export default config;

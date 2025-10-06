@@ -36,6 +36,7 @@ app.use('/webhook/whatsapp', express.raw({ type: 'application/json' }), whatsapp
 
 // Rutas protegidas por sesión
 app.use('/api/conversations', requireSession, conversationsRouter); // GET/POST /api/conversations/*
+app.use('/api/whatsapp', requireSession, whatsappRouter); // POST /api/whatsapp/send (protegido por sesión)
 app.use('/api', requireApiKey(), simulateRouter); // POST /api/simulate/message (protegido por API key)
 
 // 404 catch-all (SIN '*')
