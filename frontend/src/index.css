@@ -14,11 +14,81 @@ body {
   overflow-x: hidden; /* NO scroll horizontal en toda la pantalla */
   width: 100%;
   max-width: 100vw;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* Modo oscuro */
+.dark body {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  color: #f1f5f9;
+}
+
+.dark .container {
+  color: #f1f5f9;
+}
+
+.dark h1 {
+  color: #ffffff !important;
+}
+
+.dark .subtitle {
+  color: #cbd5e1 !important;
+}
+
+/* Estilos modo oscuro para componentes */
+.dark .card-header {
+  border-bottom-color: #334155;
+}
+
+.dark .table th {
+  background: #1e293b;
+  color: #cbd5e1;
+  border-bottom-color: #334155;
+}
+
+.dark .table td {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-bottom-color: #334155;
+}
+
+.dark .input {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+
+.dark .input::placeholder {
+  color: #64748b;
+}
+
+.dark .input:focus {
+  border-color: #3b82f6;
+  background: #0f172a;
+}
+
+.dark .btn-primary {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+}
+
+.dark .btn-secondary {
+  background: #334155;
+  border-color: #475569;
+  color: #e2e8f0;
+}
+
+.dark .btn-secondary:hover {
+  background: #475569;
 }
 
 /* Cuando hay un chat de WhatsApp, el body debe tener fondo beige */
 body:has(.whatsapp-chat-container) {
   background: #e5ddd5 !important;
+}
+
+.dark body:has(.whatsapp-chat-container) {
+  background: #1e293b !important;
 }
 
 /* ===== LOGIN PAGE STYLES ===== */
@@ -292,6 +362,13 @@ h1 {
   padding: 24px;
   margin-bottom: 24px;
   border: 1px solid #e2e8f0;
+  transition: background 0.3s ease, border-color 0.3s ease;
+}
+
+.dark .card {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
 }
 
 .card-header {
@@ -310,6 +387,11 @@ h1 {
   display: flex;
   align-items: center;
   gap: 8px;
+  transition: color 0.3s ease;
+}
+
+.dark .card-title {
+  color: #f1f5f9;
 }
 
 /* Botones */

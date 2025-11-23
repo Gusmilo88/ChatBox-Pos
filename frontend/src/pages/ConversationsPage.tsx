@@ -8,6 +8,7 @@ import { AiStatusCard } from '@/components/AiStatusCard'
 import { StatsCard } from '@/components/StatsCard'
 import { Tabs } from '@/components/Tabs'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { MessageSquare, BarChart3 } from 'lucide-react'
@@ -156,11 +157,16 @@ export function ConversationsPage() {
 
   return (
     <div className="container">
-      <div>
-        <h1>Dashboard de Estudio Pos & Asociados</h1>
-        <p className="subtitle">
-          Gestioná las conversaciones de WhatsApp con clientes y leads
-        </p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div style={{ flex: 1 }}>
+          <h1>Dashboard de Estudio Pos & Asociados</h1>
+          <p className="subtitle">
+            Gestioná las conversaciones de WhatsApp con clientes y leads
+          </p>
+        </div>
+        <div style={{ marginLeft: '24px', flexShrink: 0 }}>
+          <ThemeToggle />
+        </div>
       </div>
 
       {/* Tarjeta de estado de IA - Siempre visible */}
