@@ -145,6 +145,160 @@ async function createAdminUser() {
   }
 }
 
+// Conversaciones hardcodeadas específicas para testing visual
+const hardcodedConversations = [
+  {
+    phone: '+5491151093439',
+    name: 'Fiorella Lucia Sponton',
+    isClient: true,
+    unreadCount: 3,
+    needsReply: true,
+    lastMessage: 'Necesito ayuda urgente con mi facturación',
+    hoursAgo: 0.5
+  },
+  {
+    phone: '+5491123456789',
+    name: 'Roberto Martínez',
+    isClient: true,
+    unreadCount: 0,
+    needsReply: false,
+    lastMessage: 'Gracias por la ayuda, todo resuelto',
+    hoursAgo: 2
+  },
+  {
+    phone: '+5491187654321',
+    name: 'Sofía Rodríguez',
+    isClient: false,
+    unreadCount: 5,
+    needsReply: true,
+    lastMessage: 'Quiero consultar sobre los servicios',
+    hoursAgo: 1
+  },
+  {
+    phone: '+5491198765432',
+    name: 'Carlos Fernández',
+    isClient: true,
+    unreadCount: 1,
+    needsReply: false,
+    lastMessage: '¿Cuándo puedo agendar una reunión?',
+    hoursAgo: 4
+  },
+  {
+    phone: '+5491112345678',
+    name: null, // Sin nombre
+    isClient: false,
+    unreadCount: 2,
+    needsReply: true,
+    lastMessage: 'Hola, tengo una consulta',
+    hoursAgo: 0.2
+  },
+  {
+    phone: '+5491123456780',
+    name: 'María González',
+    isClient: true,
+    unreadCount: 0,
+    needsReply: false,
+    lastMessage: 'Perfecto, muchas gracias',
+    hoursAgo: 12
+  },
+  {
+    phone: '+5491134567890',
+    name: 'Pedro García',
+    isClient: false,
+    unreadCount: 8,
+    needsReply: true,
+    lastMessage: 'URGENTE: Necesito hablar con alguien ya',
+    hoursAgo: 0.1
+  },
+  {
+    phone: '+5491145678901',
+    name: 'Ana López',
+    isClient: true,
+    unreadCount: 0,
+    needsReply: false,
+    lastMessage: 'Todo bien, gracias',
+    hoursAgo: 24
+  }
+]
+
+async function createHardcodedConversation(data: typeof hardcodedConversations[0]): Promise<string> {
+  const conversationId = uuidv4()
+  const now = new Date()
+  const lastMessageAt = new Date(now.getTime() - data.hoursAgo * 3600000)
+  
+  // Crear conversación
+  await collections.conversations().doc(conversationId).set({
+    phone: data.phone,
+    name: data.name || null,
+    isClient: data.isClient,
+    lastMessageAt: lastMessageAt,
+    unreadCount: data.unreadCount,
+    needsReply: data.needsReply,
+    createdAt: lastMessageAt,
+    updatedAt: now
+  })
+
+  // Crear algunos mensajes (el último mensaje debe ser el más reciente)
+  const messages = [
+    {
+      ts: lastMessageAt, // El último mensaje es el más reciente
+      from: 'usuario' as const,
+      text: data.lastMessage,
+      via: 'whatsapp' as const,
+      aiSuggested: false
+    },
+    {
+      ts: new Date(lastMessageAt.getTime() - 300000), // 5 min antes
+      from: 'sistema' as const,
+      text: '¡Hola! 👋 Soy el asistente de POS & Asociados.',
+      via: 'ia' as const,
+      aiSuggested: true
+    }
+  ]
+
+  // Importar Timestamp de Firestore
+  const { Timestamp } = await import('firebase-admin/firestore')
+  
+  for (const msg of messages) {
+    const messageId = uuidv4()
+    // Convertir Date a Timestamp de Firestore
+    const firestoreTimestamp = msg.ts instanceof Date 
+      ? Timestamp.fromDate(msg.ts)
+      : msg.ts
+    
+    await collections.messages(conversationId).doc(messageId).set({
+      ...msg,
+      ts: firestoreTimestamp
+    })
+    
+    logger.debug('Message created', { 
+      conversationId, 
+      messageId, 
+      text: msg.text.substring(0, 30),
+      ts: msg.ts 
+    })
+  }
+  
+  // Actualizar la conversación con el último mensaje (usar Timestamp)
+  const firestoreLastMessageAt = lastMessageAt instanceof Date
+    ? Timestamp.fromDate(lastMessageAt)
+    : lastMessageAt
+    
+  await collections.conversations().doc(conversationId).update({
+    lastMessageAt: firestoreLastMessageAt
+  })
+  
+  logger.info('Hardcoded conversation created', { 
+    conversationId, 
+    phone: data.phone, 
+    name: data.name,
+    lastMessage: data.lastMessage,
+    messageCount: messages.length
+  })
+
+  return conversationId
+}
+
 async function main() {
   try {
     logger.info('Starting conversation seed...')
@@ -152,8 +306,17 @@ async function main() {
     // Crear admin
     await createAdminUser()
     
-    // Crear conversaciones
-    const conversationCount = 50
+    // Crear conversaciones hardcodeadas específicas
+    logger.info('Creating hardcoded conversations...')
+    const hardcodedIds = []
+    for (const conv of hardcodedConversations) {
+      const id = await createHardcodedConversation(conv)
+      hardcodedIds.push(id)
+    }
+    logger.info(`Created ${hardcodedIds.length} hardcoded conversations`)
+    
+    // Crear conversaciones aleatorias adicionales
+    const conversationCount = 20
     const conversations = []
     
     for (let i = 0; i < conversationCount; i++) {
@@ -165,11 +328,11 @@ async function main() {
       conversations.push(conversationId)
       
       if ((i + 1) % 10 === 0) {
-        logger.info(`Created ${i + 1}/${conversationCount} conversations`)
+        logger.info(`Created ${i + 1}/${conversationCount} random conversations`)
       }
     }
     
-    logger.info(`Seed completed! Created ${conversations.length} conversations`)
+    logger.info(`Seed completed! Created ${hardcodedIds.length} hardcoded + ${conversations.length} random conversations`)
     logger.info('Admin credentials: posyasociados@hotmail.com / EstudioPos2025')
     
   } catch (error) {

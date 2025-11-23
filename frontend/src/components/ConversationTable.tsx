@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, MessageSquare, Phone, User, Clock } from 'lucide-react'
+import { ChevronLeft, ChevronRight, MessageSquare, Phone, User, Clock, CheckCircle2, Circle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -122,41 +122,140 @@ export function ConversationTable({
                 key={conversation.id}
                 className={conversation.needsReply ? 'urgent' : ''}
                 onClick={() => handleRowClick(conversation.id)}
-                onMouseEnter={() => setHoveredRow(conversation.id)}
-                onMouseLeave={() => setHoveredRow(null)}
+                onMouseEnter={(e) => {
+                  setHoveredRow(conversation.id)
+                  e.currentTarget.style.backgroundColor = conversation.needsReply ? '#fee2e2' : '#e0f2fe'
+                  e.currentTarget.style.transform = 'translateX(2px)'
+                }}
+                onMouseLeave={(e) => {
+                  setHoveredRow(null)
+                  e.currentTarget.style.backgroundColor = conversation.unreadCount > 0 
+                    ? (conversation.needsReply ? '#fef2f2' : '#f0f9ff')
+                    : 'white'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                }}
+                style={{
+                  backgroundColor: conversation.unreadCount > 0 
+                    ? (conversation.needsReply ? '#fef2f2' : '#f0f9ff')
+                    : 'white',
+                  borderLeft: conversation.needsReply ? '4px solid #dc2626' : conversation.unreadCount > 0 ? '4px solid #3b82f6' : '4px solid transparent',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  position: 'relative'
+                }}
               >
-                <td className="font-medium">
-                  <div className="flex items-center gap-2">
-                    {formatPhone(conversation.phone)}
+                <td style={{ padding: '16px', fontWeight: '500' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '6px',
+                      color: conversation.unreadCount > 0 ? '#111827' : '#6b7280'
+                    }}>
+                      {conversation.unreadCount > 0 ? (
+                        <Circle size={8} fill="#3b82f6" color="#3b82f6" />
+                      ) : (
+                        <CheckCircle2 size={8} color="#10b981" />
+                      )}
+                      <span style={{ fontWeight: conversation.unreadCount > 0 ? '600' : '500' }}>
+                        {formatPhone(conversation.phone)}
+                      </span>
+                    </div>
                     {conversation.needsReply && (
-                      <span className="badge badge-urgente">
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        backgroundColor: '#fee2e2',
+                        color: '#dc2626',
+                        border: '1px solid #fca5a5'
+                      }}>
                         Urgente
                       </span>
                     )}
                   </div>
                 </td>
-                <td>
-                  {conversation.name ? (
-                    <span className="font-medium">{conversation.name}</span>
-                  ) : (
-                    <span className="text-gray-400 italic">Sin nombre</span>
-                  )}
+                <td style={{ padding: '16px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {conversation.name ? (
+                      <span style={{ 
+                        fontWeight: '600', 
+                        color: '#111827',
+                        fontSize: '14px'
+                      }}>
+                        {conversation.name}
+                      </span>
+                    ) : (
+                      <span style={{ 
+                        color: '#9ca3af', 
+                        fontStyle: 'italic',
+                        fontSize: '14px'
+                      }}>
+                        Sin nombre
+                      </span>
+                    )}
+                    {conversation.lastMessage && (
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#6b7280',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        maxWidth: '200px'
+                      }}>
+                        {conversation.lastMessage}
+                      </span>
+                    )}
+                  </div>
                 </td>
-                <td>
-                  <span className={`badge ${conversation.isClient ? "badge-cliente" : "badge-no-cliente"}`}>
-                    {conversation.isClient ? "Cliente" : "No Cliente"}
+                <td style={{ padding: '16px' }}>
+                  <span style={{
+                    padding: '4px 12px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    backgroundColor: conversation.isClient ? '#d1fae5' : '#fef3c7',
+                    color: conversation.isClient ? '#059669' : '#d97706',
+                    border: `1px solid ${conversation.isClient ? '#6ee7b7' : '#fcd34d'}`
+                  }}>
+                    {conversation.isClient ? "Cliente" : "Lead"}
                   </span>
                 </td>
-                <td className="text-sm text-gray-600">
-                  {formatDateTime(conversation.lastMessageAt)}
+                <td style={{ padding: '16px', fontSize: '13px', color: '#6b7280' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <span>{formatDateTime(conversation.lastMessageAt)}</span>
+                    {conversation.unreadCount > 0 && (
+                      <span style={{
+                        fontSize: '11px',
+                        color: '#3b82f6',
+                        fontWeight: '600'
+                      }}>
+                        {conversation.unreadCount} nuevo{conversation.unreadCount > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
                 </td>
-                <td>
+                <td style={{ padding: '16px', textAlign: 'center' }}>
                   {conversation.unreadCount > 0 ? (
-                    <span className="badge badge-unread">
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: '24px',
+                      height: '24px',
+                      padding: '0 8px',
+                      borderRadius: '12px',
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      backgroundColor: '#3b82f6',
+                      color: 'white',
+                      boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
+                    }}>
                       {conversation.unreadCount}
                     </span>
                   ) : (
-                    <span className="text-gray-400 text-sm">0</span>
+                    <CheckCircle2 size={16} color="#10b981" style={{ opacity: 0.5 }} />
                   )}
                 </td>
               </tr>

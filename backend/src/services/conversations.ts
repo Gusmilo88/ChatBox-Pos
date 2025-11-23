@@ -96,29 +96,106 @@ export async function listConversations(params: {
     queryRef = queryRef.offset(offset).limit(pageSize)
 
     const snapshot = await queryRef.get()
+    logger.info('Firestore query result', { 
+      totalDocs: snapshot.size, 
+      page, 
+      pageSize,
+      hasQuery: !!query
+    })
+    
     const items: ConversationListItem[] = []
+    
+    // Primero filtrar por búsqueda de texto si existe
+    let filteredDocs = snapshot.docs
+    if (query) {
+      const queryLower = query.toLowerCase()
+      filteredDocs = snapshot.docs.filter(doc => {
+        const data = doc.data()
+        const searchText = `${data.phone || ''} ${data.name || ''}`.toLowerCase()
+        return searchText.includes(queryLower)
+      })
+      logger.info('After text filter', { 
+        originalCount: snapshot.size, 
+        filteredCount: filteredDocs.length 
+      })
+    }
 
-    for (const doc of snapshot.docs) {
+    // Obtener últimos mensajes en paralelo para todas las conversaciones
+    const lastMessagesPromises = filteredDocs.map(async (doc) => {
+      let lastMessage: string | undefined
+      try {
+        const messagesRef = collections.messages(doc.id)
+        
+        // Intentar con orderBy primero
+        try {
+          const messagesSnapshot = await messagesRef
+            .orderBy('ts', 'desc')
+            .limit(1)
+            .get()
+          
+          if (!messagesSnapshot.empty) {
+            const messageData = messagesSnapshot.docs[0].data()
+            lastMessage = messageData.text || messageData.message || undefined
+          }
+        } catch (orderError) {
+          // Si falla por falta de índice, obtener todos y ordenar en memoria
+          const allMessages = await messagesRef.get()
+          if (!allMessages.empty) {
+            const sortedMessages = allMessages.docs
+              .map(d => ({ data: d.data(), id: d.id }))
+              .sort((a, b) => {
+                const aTs = a.data.ts?.toMillis?.() || a.data.ts?.getTime?.() || new Date(a.data.ts || 0).getTime()
+                const bTs = b.data.ts?.toMillis?.() || b.data.ts?.getTime?.() || new Date(b.data.ts || 0).getTime()
+                return bTs - aTs
+              })
+            
+            if (sortedMessages.length > 0) {
+              lastMessage = sortedMessages[0].data.text || sortedMessages[0].data.message || undefined
+            }
+          }
+        }
+        
+        // Limitar longitud del mensaje para la vista previa
+        if (lastMessage && lastMessage.length > 50) {
+          lastMessage = lastMessage.substring(0, 50) + '...'
+        }
+      } catch (error) {
+        // Si falla completamente, continuar sin último mensaje
+        const msg = (error instanceof Error) ? error.message : String(error)
+        logger.debug('Could not fetch last message', { conversationId: doc.id, error: msg })
+      }
+      return { doc, lastMessage }
+    })
+
+    // Esperar todas las consultas de mensajes en paralelo
+    const results = await Promise.all(lastMessagesPromises)
+    
+    // Construir items
+    for (const { doc, lastMessage } of results) {
       const data = doc.data()
       
-      // Filtro de búsqueda por texto
-      if (query) {
-        const searchText = `${data.phone || ''} ${data.name || ''}`.toLowerCase()
-        if (!searchText.includes(query.toLowerCase())) {
-          continue
-        }
-      }
-
-      items.push({
+      const item: ConversationListItem = {
         id: doc.id,
         phone: data.phone,
         name: data.name,
         isClient: data.isClient || false,
         lastMessageAt: data.lastMessageAt?.toDate?.()?.toISOString() || new Date().toISOString(),
         unreadCount: data.unreadCount || 0,
-        needsReply: data.needsReply || false
-      })
+        needsReply: data.needsReply || false,
+        lastMessage
+      }
+      
+      items.push(item)
     }
+    
+    logger.info('Conversations processed', { 
+      totalItems: items.length,
+      sampleItems: items.slice(0, 3).map(i => ({ 
+        id: i.id, 
+        phone: i.phone, 
+        hasLastMessage: !!i.lastMessage 
+      }))
+    })
 
     // Contar total (aproximado)
     const totalSnapshot = await collections.conversations().get()

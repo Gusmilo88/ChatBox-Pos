@@ -32,32 +32,22 @@ const replySchema = zod_1.z.object({
 // GET /api/conversations - Listar conversaciones
 router.get('/', session_1.requireSession, async (req, res) => {
     try {
-        // TEMPORAL: Devolver datos mock para probar
-        const mockResult = {
-            conversations: [
-                {
-                    id: 'ocjQTrpJW87IZaSkPBYb',
-                    phone: '541151093439',
-                    isClient: false,
-                    needsReply: false,
-                    unreadCount: 0,
-                    lastMessageAt: '2025-09-28T23:47:49.000Z',
-                    lastMessage: 'Hola, necesito información sobre los servicios'
-                }
-            ],
-            total: 1,
-            page: 1,
-            pageSize: 25,
-            hasMore: false
-        };
-        res.json(mockResult);
-        // TODO: Descomentar cuando Firebase esté funcionando
-        // const result = await listConversations(req.query)
-        // res.json(result)
+        logger_1.default.info('Listing conversations request', {
+            query: req.query,
+            hasQuery: !!req.query.query
+        });
+        const validatedParams = listConversationsSchema.parse(req.query);
+        const result = await (0, conversations_1.listConversations)(validatedParams);
+        logger_1.default.info('Conversations listed successfully', {
+            total: result.total,
+            returned: result.conversations.length,
+            page: result.page
+        });
+        res.json(result);
     }
     catch (error) {
         const msg = (error instanceof Error) ? error.message : String(error);
-        logger_1.default.error('error_listing_conversations', { error: msg });
+        logger_1.default.error('error_listing_conversations', { error: msg, stack: error?.stack });
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

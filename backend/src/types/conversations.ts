@@ -23,7 +23,7 @@ export type ConversationListItem = {
   name?: string
   isClient: boolean
   lastMessageAt: string // ISO
-  lastMessage?: string
+  lastMessage?: string // Último mensaje de la conversación
   unreadCount: number
   needsReply: boolean
 }

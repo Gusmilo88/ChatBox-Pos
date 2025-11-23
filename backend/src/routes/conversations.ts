@@ -45,32 +45,24 @@ router.get('/',
   requireSession,
   async (req, res) => {
     try {
-      // TEMPORAL: Devolver datos mock para probar
-      const mockResult = {
-        conversations: [
-          {
-            id: 'ocjQTrpJW87IZaSkPBYb',
-            phone: '541151093439',
-            isClient: false,
-            needsReply: false,
-            unreadCount: 0,
-            lastMessageAt: '2025-09-28T23:47:49.000Z',
-            lastMessage: 'Hola, necesito información sobre los servicios'
-          }
-        ],
-        total: 1,
-        page: 1,
-        pageSize: 25,
-        hasMore: false
-      }
-      res.json(mockResult)
+      logger.info('Listing conversations request', { 
+        query: req.query,
+        hasQuery: !!req.query.query 
+      })
       
-      // TODO: Descomentar cuando Firebase esté funcionando
-      // const result = await listConversations(req.query)
-      // res.json(result)
+      const validatedParams = listConversationsSchema.parse(req.query)
+      const result = await listConversations(validatedParams)
+      
+      logger.info('Conversations listed successfully', { 
+        total: result.total,
+        returned: result.conversations.length,
+        page: result.page 
+      })
+      
+      res.json(result)
     } catch (error) {
       const msg = (error instanceof Error) ? error.message : String(error);
-      logger.error('error_listing_conversations', { error: msg })
+      logger.error('error_listing_conversations', { error: msg, stack: (error as Error)?.stack })
       res.status(500).json({ error: 'Error interno del servidor' })
     }
   }
