@@ -18,6 +18,7 @@ import webhook360Router from './routes/webhook360';
 import wa360TestRouter from './routes/wa360_test';
 import aiStatsRouter from './routes/aiStats';
 import statsRouter from './routes/stats';
+import autoRepliesRouter from './routes/autoReplies';
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use('/api/conversations', requireSession, conversationsRouter);
 app.use('/api/whatsapp', requireSession, whatsappRouter);
 app.use('/api/ai', aiStatsRouter);
 app.use('/api/stats', statsRouter);
+app.use('/api/auto-replies', requireSession, autoRepliesRouter);
 
 // Rutas protegidas por API key
 app.use('/api/wa360/test', requireApiKey(), wa360TestRouter);

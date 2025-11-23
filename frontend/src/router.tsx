@@ -2,6 +2,7 @@ import { createBrowserRouter } from 'react-router-dom'
 import { ConversationsPage } from '@/pages/ConversationsPage'
 import { ConversationDetailPage } from '@/pages/ConversationDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
+import { AutoRepliesPage } from '@/pages/AutoRepliesPage'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import TestChat from './TestChat'
 
@@ -21,5 +22,9 @@ export const router = createBrowserRouter([
   {
     path: '/c/:id',
     element: <ProtectedRoute><ConversationDetailPage /></ProtectedRoute>,
+  },
+  {
+    path: '/auto-replies',
+    element: <ProtectedRoute><AutoRepliesPage /></ProtectedRoute>,
   },
 ])

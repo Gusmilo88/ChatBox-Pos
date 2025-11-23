@@ -10,15 +10,26 @@ import { Tabs } from '@/components/Tabs'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useAuth } from '@/hooks/useAuth'
+import { useNotifications } from '@/hooks/useNotifications'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { MessageSquare, BarChart3, LogOut } from 'lucide-react'
+import { MessageSquare, BarChart3, LogOut, Settings } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 export function ConversationsPage() {
   const navigate = useNavigate()
   const { page, setPage, ...filters } = useFiltersStore()
   const [activeTab, setActiveTab] = useState<'conversations' | 'stats'>('conversations')
   const { logout } = useAuth()
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
   
   const {
     data: conversationsData,
@@ -159,14 +170,55 @@ export function ConversationsPage() {
 
   return (
     <div className="container">
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'flex-start' : 'flex-start', 
+        justifyContent: 'space-between', 
+        marginBottom: '24px',
+        gap: isMobile ? '16px' : '0'
+      }}>
         <div style={{ flex: 1 }}>
           <h1>Dashboard de Estudio Pos & Asociados</h1>
           <p className="subtitle">
             Gestioná las conversaciones de WhatsApp con clientes y leads
           </p>
         </div>
-        <div style={{ marginLeft: '24px', flexShrink: 0, display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <div style={{ 
+          marginLeft: isMobile ? '0' : '24px', 
+          flexShrink: 0, 
+          display: 'flex', 
+          gap: isMobile ? '8px' : '12px', 
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          width: isMobile ? '100%' : 'auto'
+        }}>
+          <Link
+            to="/auto-replies"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: isMobile ? '8px 12px' : '10px 16px',
+              borderRadius: '12px',
+              backgroundColor: '#f3f4f6',
+              color: '#374151',
+              textDecoration: 'none',
+              fontSize: isMobile ? '13px' : '14px',
+              fontWeight: '600',
+              transition: 'all 0.2s ease',
+              whiteSpace: 'nowrap'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#e5e7eb'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#f3f4f6'
+            }}
+          >
+            <Settings size={isMobile ? 16 : 18} />
+            {isMobile ? 'Auto' : 'Respuestas Automáticas'}
+          </Link>
           <ThemeToggle />
           <button
             onClick={logout}
@@ -176,7 +228,7 @@ export function ConversationsPage() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
-              padding: '10px 16px',
+              padding: isMobile ? '8px 12px' : '10px 16px',
               borderRadius: '12px',
               border: 'none',
               background: '#ef4444',
@@ -184,8 +236,9 @@ export function ConversationsPage() {
               cursor: 'pointer',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               fontWeight: '600',
-              fontSize: '14px',
-              boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)'
+              fontSize: isMobile ? '13px' : '14px',
+              boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)',
+              whiteSpace: 'nowrap'
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = '#dc2626'
@@ -199,7 +252,7 @@ export function ConversationsPage() {
             }}
             title="Cerrar sesión"
           >
-            <LogOut size={18} />
+            <LogOut size={isMobile ? 16 : 18} />
             Salir
           </button>
         </div>

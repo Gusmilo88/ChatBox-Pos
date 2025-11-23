@@ -1,7 +1,7 @@
 export type Message = {
   id: string
   timestamp: string // ISO
-  from: 'usuario' | 'operador' | 'sistema'
+  from: 'usuario' | 'operador' | 'sistema' | 'system'
   text: string
   via?: 'whatsapp' | 'ia' | 'manual'
   aiSuggested?: boolean

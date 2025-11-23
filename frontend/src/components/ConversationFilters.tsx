@@ -1,11 +1,12 @@
-import { useState } from 'react'
-import { Search, Calendar, Download, Filter, X } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Search, Calendar, Download, Filter, X, FileText, FileSpreadsheet, File } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useFiltersStore } from '@/store/filters'
 import { formatDateTime, arrayToCsv, downloadCsv, generateCsvFilename } from '@/utils/format'
+import { exportConversationsToPDF, exportConversationsToExcel } from '@/utils/export'
 import type { ConversationListItem } from '@/types/conversations'
 
 interface ConversationFiltersProps {
@@ -31,8 +32,27 @@ export function ConversationFilters({ onExport, exportData, isLoading }: Convers
 
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
 
-  const handleExport = async () => {
+  // Cerrar menú al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setShowExportMenu(false)
+      }
+    }
+
+    if (showExportMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showExportMenu])
+
+  const handleExportCSV = async () => {
     if (!exportData || exportData.length === 0) return
     
     setIsExporting(true)
@@ -55,6 +75,37 @@ export function ConversationFilters({ onExport, exportData, isLoading }: Convers
       console.error('Error exportando CSV:', error)
     } finally {
       setIsExporting(false)
+      setShowExportMenu(false)
+    }
+  }
+
+  const handleExportPDF = async () => {
+    if (!exportData || exportData.length === 0) return
+    
+    setIsExporting(true)
+    try {
+      exportConversationsToPDF(exportData)
+      onExport?.(exportData)
+    } catch (error) {
+      console.error('Error exportando PDF:', error)
+    } finally {
+      setIsExporting(false)
+      setShowExportMenu(false)
+    }
+  }
+
+  const handleExportExcel = async () => {
+    if (!exportData || exportData.length === 0) return
+    
+    setIsExporting(true)
+    try {
+      exportConversationsToExcel(exportData)
+      onExport?.(exportData)
+    } catch (error) {
+      console.error('Error exportando Excel:', error)
+    } finally {
+      setIsExporting(false)
+      setShowExportMenu(false)
     }
   }
 
@@ -98,14 +149,105 @@ export function ConversationFilters({ onExport, exportData, isLoading }: Convers
               className="input"
             />
           </div>
-          <button
-            onClick={handleExport}
-            disabled={!exportData || exportData.length === 0 || isExporting}
-            className="btn btn-primary"
-          >
-            <Download className="icon" />
-            {isExporting ? 'Exportando...' : 'Exportar CSV'}
-          </button>
+          <div ref={exportMenuRef} style={{ position: 'relative', display: 'inline-block' }}>
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              disabled={!exportData || exportData.length === 0 || isExporting}
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <Download className="icon" />
+              {isExporting ? 'Exportando...' : 'Exportar'}
+            </button>
+            
+            {showExportMenu && !isExporting && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: '4px',
+                backgroundColor: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                zIndex: 1000,
+                minWidth: '180px',
+                overflow: 'hidden'
+              }}>
+                <button
+                  onClick={handleExportCSV}
+                  disabled={!exportData || exportData.length === 0}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    textAlign: 'left',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    color: '#374151',
+                    transition: 'background-color 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <File size={18} />
+                  <span>Exportar CSV</span>
+                </button>
+                <button
+                  onClick={handleExportPDF}
+                  disabled={!exportData || exportData.length === 0}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    textAlign: 'left',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    color: '#374151',
+                    transition: 'background-color 0.2s',
+                    borderTop: '1px solid #e5e7eb'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <FileText size={18} />
+                  <span>Exportar PDF</span>
+                </button>
+                <button
+                  onClick={handleExportExcel}
+                  disabled={!exportData || exportData.length === 0}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    textAlign: 'left',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    color: '#374151',
+                    transition: 'background-color 0.2s',
+                    borderTop: '1px solid #e5e7eb'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <FileSpreadsheet size={18} />
+                  <span>Exportar Excel</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Filtros avanzados */}

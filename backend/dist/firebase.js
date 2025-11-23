@@ -133,5 +133,6 @@ exports.collections = {
     admins: (db) => (db || getDb()).collection('admins'),
     audit: (db) => (db || getDb()).collection('audit'),
     aiUsage: (db) => (db || getDb()).collection('ai_usage'),
-    aiSettings: (db) => (db || getDb()).collection('ai_settings')
+    aiSettings: (db) => (db || getDb()).collection('ai_settings'),
+    autoReplyRules: (db) => (db || getDb()).collection('auto_reply_rules')
 };

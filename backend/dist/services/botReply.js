@@ -9,6 +9,7 @@ const ai_1 = require("./ai");
 const aiCostTracker_1 = require("./aiCostTracker");
 const clientsRepo_1 = require("./clientsRepo");
 const firebase_1 = require("../firebase");
+const autoReplies_1 = require("./autoReplies");
 const logger_1 = __importDefault(require("../libs/logger"));
 const env_1 = __importDefault(require("../config/env"));
 // Instancia global del FSM manager
@@ -110,6 +111,21 @@ async function generateBotReply(phone, text, conversationId) {
             catch (error) {
                 logger_1.default.debug('Error obteniendo historial para IA', { error: error?.message });
             }
+        }
+        // 2.5. Verificar respuestas automáticas (horario/palabras clave)
+        // Esto tiene prioridad sobre IA y FSM
+        const autoReply = await (0, autoReplies_1.findAutoReply)(text, isClient);
+        if (autoReply) {
+            logger_1.default.info('Respuesta automática aplicada', {
+                phone: normalizedPhone,
+                conversationId,
+                isClient,
+                responseLength: autoReply.length
+            });
+            return {
+                replies: [autoReply],
+                via: 'fsm' // Marcar como FSM para consistencia
+            };
         }
         // 3. Intentar usar IA primero (si está disponible y no se superó el límite)
         const aiAvailable = await (0, aiCostTracker_1.canUseAi)();

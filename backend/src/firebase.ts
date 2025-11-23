@@ -137,5 +137,6 @@ export const collections = {
   admins: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('admins'),
   audit: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('audit'),
   aiUsage: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('ai_usage'),
-  aiSettings: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('ai_settings')
+  aiSettings: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('ai_settings'),
+  autoReplyRules: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('auto_reply_rules')
 }

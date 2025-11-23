@@ -3,6 +3,7 @@ import { aiReply, type AiContext } from './ai';
 import { canUseAi } from './aiCostTracker';
 import { existsByCuit, getDoc } from './clientsRepo';
 import { collections } from '../firebase';
+import { findAutoReply } from './autoReplies';
 import logger from '../libs/logger';
 import config from '../config/env';
 
@@ -120,6 +121,22 @@ export async function generateBotReply(
       }
     }
     
+    // 2.5. Verificar respuestas automáticas (horario/palabras clave)
+    // Esto tiene prioridad sobre IA y FSM
+    const autoReply = await findAutoReply(text, isClient);
+    if (autoReply) {
+      logger.info('Respuesta automática aplicada', {
+        phone: normalizedPhone,
+        conversationId,
+        isClient,
+        responseLength: autoReply.length
+      });
+      return {
+        replies: [autoReply],
+        via: 'fsm' // Marcar como FSM para consistencia
+      };
+    }
+
     // 3. Intentar usar IA primero (si está disponible y no se superó el límite)
     const aiAvailable = await canUseAi();
     

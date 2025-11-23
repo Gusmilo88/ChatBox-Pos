@@ -11,6 +11,7 @@ import {
   getAiLimit,
   setAiLimit
 } from './http'
+import type { AutoReplyRule } from '@/types/autoReplies'
 
 // Adaptador que usa HTTP real
 export const api = {
@@ -40,6 +41,66 @@ export const api = {
     getConversations: async (): Promise<any> => {
       const { getConversationStats } = await import('./http')
       return getConversationStats()
+    }
+  },
+
+  // Respuestas automáticas
+  autoReplies: {
+    list: async (): Promise<{ rules: AutoReplyRule[] }> => {
+      const response = await fetch('/api/auto-replies', {
+        credentials: 'include'
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Error al obtener reglas' }))
+        throw new Error(errorData.error || 'Error al obtener reglas')
+      }
+      return response.json()
+    },
+    get: async (id: string): Promise<AutoReplyRule> => {
+      const response = await fetch(`/api/auto-replies/${id}`, {
+        credentials: 'include'
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Error al obtener regla' }))
+        throw new Error(errorData.error || 'Error al obtener regla')
+      }
+      return response.json()
+    },
+    create: async (rule: Omit<AutoReplyRule, 'id'>): Promise<AutoReplyRule> => {
+      const response = await fetch('/api/auto-replies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(rule)
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Error al crear regla' }))
+        throw new Error(errorData.error || 'Error al crear regla')
+      }
+      return response.json()
+    },
+    update: async (id: string, rule: Partial<AutoReplyRule>): Promise<AutoReplyRule> => {
+      const response = await fetch(`/api/auto-replies/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(rule)
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Error al actualizar regla' }))
+        throw new Error(errorData.error || 'Error al actualizar regla')
+      }
+      return response.json()
+    },
+    delete: async (id: string): Promise<void> => {
+      const response = await fetch(`/api/auto-replies/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Error al eliminar regla' }))
+        throw new Error(errorData.error || 'Error al eliminar regla')
+      }
     }
   }
 }
