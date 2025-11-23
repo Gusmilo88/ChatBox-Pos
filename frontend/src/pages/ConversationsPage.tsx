@@ -6,12 +6,15 @@ import { ConversationFilters } from '@/components/ConversationFilters'
 import { EmptyState } from '@/components/EmptyState'
 import { AiStatusCard } from '@/components/AiStatusCard'
 import { StatsCard } from '@/components/StatsCard'
+import { Tabs } from '@/components/Tabs'
 import { useNavigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { MessageSquare, BarChart3 } from 'lucide-react'
 
 export function ConversationsPage() {
   const navigate = useNavigate()
   const { page, setPage, ...filters } = useFiltersStore()
+  const [activeTab, setActiveTab] = useState<'conversations' | 'stats'>('conversations')
   
   const {
     data: conversationsData,
@@ -137,61 +140,82 @@ export function ConversationsPage() {
 
   const hasResults = conversationsData && conversationsData.conversations.length > 0
 
+  const tabs = [
+    {
+      id: 'conversations',
+      label: 'Conversaciones',
+      icon: <MessageSquare size={18} />
+    },
+    {
+      id: 'stats',
+      label: 'Estadísticas',
+      icon: <BarChart3 size={18} />
+    }
+  ]
+
   return (
     <div className="container">
       <div>
-        <h1>Conversaciones</h1>
+        <h1>Dashboard</h1>
         <p className="subtitle">
           Gestioná las conversaciones de WhatsApp con clientes y leads
         </p>
       </div>
 
-      {/* Tarjeta de estado de IA */}
+      {/* Tarjeta de estado de IA - Siempre visible */}
       <div className="mb-6">
         <AiStatusCard />
       </div>
 
-      {/* Tarjeta de estadísticas */}
-      <div className="mb-6">
-        <StatsCard />
-      </div>
+      {/* Sistema de pestañas */}
+      <Tabs
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={(tabId) => setActiveTab(tabId as 'conversations' | 'stats')}
+      >
+        {activeTab === 'conversations' ? (
+          <>
+            <ConversationFilters
+              exportData={conversationsData?.conversations}
+              isLoading={isLoading}
+              onExport={handleExport}
+            />
 
-      <ConversationFilters
-        exportData={conversationsData?.conversations}
-        isLoading={isLoading}
-        onExport={handleExport}
-      />
-
-      {isLoading && !conversationsData ? (
-        <EmptyState
-          type="loading"
-          title="Cargando conversaciones..."
-          description="Obteniendo la lista de conversaciones..."
-        />
-      ) : !hasResults ? (
-        <EmptyState
-          type="no-results"
-          title="Sin resultados"
-          description="No se encontraron conversaciones con los filtros aplicados. Intentá ajustar los criterios de búsqueda."
-          action={{
-            label: "Limpiar filtros",
-            onClick: () => {
-              const store = useFiltersStore.getState()
-              store.reset()
-            }
-          }}
-        />
-      ) : (
-        <ConversationTable
-          conversations={conversationsData!.conversations}
-          total={conversationsData!.total}
-          page={conversationsData!.page}
-          pageSize={conversationsData!.pageSize}
-          onPageChange={handlePageChange}
-          onConversationClick={handleConversationClick}
-          isLoading={isLoading}
-        />
-      )}
+            {isLoading && !conversationsData ? (
+              <EmptyState
+                type="loading"
+                title="Cargando conversaciones..."
+                description="Obteniendo la lista de conversaciones..."
+              />
+            ) : !hasResults ? (
+              <EmptyState
+                type="no-results"
+                title="Sin resultados"
+                description="No se encontraron conversaciones con los filtros aplicados. Intentá ajustar los criterios de búsqueda."
+                action={{
+                  label: "Limpiar filtros",
+                  onClick: () => {
+                    const store = useFiltersStore.getState()
+                    store.reset()
+                  }
+                }}
+              />
+            ) : (
+              <ConversationTable
+                conversations={conversationsData!.conversations}
+                total={conversationsData!.total}
+                page={conversationsData!.page}
+                pageSize={conversationsData!.pageSize}
+                onPageChange={handlePageChange}
+                onConversationClick={handleConversationClick}
+                isLoading={isLoading}
+              />
+            )}
+          </>
+        ) : (
+          <StatsCard />
+        )}
+      </Tabs>
     </div>
   )
 }
