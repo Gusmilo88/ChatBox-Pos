@@ -5,6 +5,7 @@ import { ConversationTable } from '@/components/ConversationTable'
 import { ConversationFilters } from '@/components/ConversationFilters'
 import { EmptyState } from '@/components/EmptyState'
 import { AiStatusCard } from '@/components/AiStatusCard'
+import { StatsCard } from '@/components/StatsCard'
 import { useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 
@@ -23,6 +24,47 @@ export function ConversationsPage() {
     staleTime: 30000, // 30 segundos
     refetchInterval: 60000, // Refetch cada minuto
   })
+
+  // Notificaciones de mensajes nuevos
+  useEffect(() => {
+    // Solicitar permiso para notificaciones
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+
+    // Verificar mensajes que necesitan respuesta
+    if (conversationsData?.conversations) {
+      const needsReply = conversationsData.conversations.filter(c => c.needsReply)
+      const unreadCount = conversationsData.conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0)
+
+      if (needsReply.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
+        // Solo notificar si hay mensajes nuevos (no spam)
+        const lastNotification = localStorage.getItem('lastNotification')
+        const now = Date.now()
+        
+        if (!lastNotification || (now - parseInt(lastNotification)) > 30000) { // 30 segundos entre notificaciones
+          new Notification('Mensajes que necesitan respuesta', {
+            body: `${needsReply.length} conversación${needsReply.length > 1 ? 'es' : ''} necesita${needsReply.length > 1 ? 'n' : ''} respuesta`,
+            icon: '/vite.svg',
+            tag: 'needs-reply',
+            requireInteraction: false
+          })
+          localStorage.setItem('lastNotification', now.toString())
+        }
+      }
+
+      // Actualizar título de la página con contador
+      if (unreadCount > 0) {
+        document.title = `(${unreadCount}) Conversaciones - POS & Asociados`
+      } else {
+        document.title = 'Conversaciones - POS & Asociados'
+      }
+    }
+
+    return () => {
+      document.title = 'Conversaciones - POS & Asociados'
+    }
+  }, [conversationsData])
 
   const handleConversationClick = (id: string) => {
     navigate(`/c/${id}`)
@@ -107,6 +149,11 @@ export function ConversationsPage() {
       {/* Tarjeta de estado de IA */}
       <div className="mb-6">
         <AiStatusCard />
+      </div>
+
+      {/* Tarjeta de estadísticas */}
+      <div className="mb-6">
+        <StatsCard />
       </div>
 
       <ConversationFilters

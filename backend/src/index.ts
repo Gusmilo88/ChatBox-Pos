@@ -17,6 +17,7 @@ import authRouter from './routes/auth';
 import webhook360Router from './routes/webhook360';
 import wa360TestRouter from './routes/wa360_test';
 import aiStatsRouter from './routes/aiStats';
+import statsRouter from './routes/stats';
 
 const app = express();
 
@@ -48,6 +49,7 @@ app.use('/api/webhook/whatsapp', express.raw({ type: 'application/json' }), webh
 app.use('/api/conversations', requireSession, conversationsRouter);
 app.use('/api/whatsapp', requireSession, whatsappRouter);
 app.use('/api/ai', aiStatsRouter);
+app.use('/api/stats', statsRouter);
 
 // Rutas protegidas por API key
 app.use('/api/wa360/test', requireApiKey(), wa360TestRouter);

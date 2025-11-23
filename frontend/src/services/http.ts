@@ -80,4 +80,10 @@ export async function setAiLimit(limitUsd: number): Promise<void> {
   })
 }
 
+// Estadísticas de conversaciones
+export async function getConversationStats(): Promise<any> {
+  const data = await apiRequest<{ ok: boolean; data: any }>('/api/stats/conversations')
+  return data.data
+}
+
 // Autenticación via cookies HttpOnly

@@ -93,7 +93,7 @@ export function ConversationTable({
   return (
     <div>
       {/* Tabla */}
-      <div className="table-container">
+      <div className="table-container conversation-table-scroll">
         <table className="table">
           <thead>
             <tr>

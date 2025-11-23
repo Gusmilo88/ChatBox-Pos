@@ -33,6 +33,14 @@ export const api = {
     getStats: getAiStats,
     getLimit: getAiLimit,
     setLimit: setAiLimit
+  },
+
+  // Estadísticas de conversaciones
+  stats: {
+    getConversations: async (): Promise<any> => {
+      const { getConversationStats } = await import('./http')
+      return getConversationStats()
+    }
   }
 }
 

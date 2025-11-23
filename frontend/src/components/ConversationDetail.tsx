@@ -1,9 +1,106 @@
 import { useState, useRef, useEffect } from 'react'
-import { ArrowLeft, Send, Phone, Video, MoreVertical, Smile, Paperclip, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Send, Phone, Video, MoreVertical, Smile, Paperclip, AlertCircle, MessageSquare } from 'lucide-react'
 import { formatPhone, formatTime } from '@/utils/format'
 import { maskPII } from '@/utils/mask'
 import { replyConversation } from '@/services/http'
 import type { ConversationDetail, Message } from '@/types/conversations'
+
+// Plantillas de respuestas rápidas
+const QUICK_REPLIES = [
+  'Gracias por contactarnos',
+  'Te paso con Iván',
+  'Te paso con Belén',
+  'En breve te respondo',
+  'Perfecto, lo reviso y te aviso',
+  '¿Necesitás algo más?',
+  'Saludos',
+  'Buen día'
+]
+
+function QuickReplyTemplates({ onSelect, disabled }: { onSelect: (template: string) => void; disabled: boolean }) {
+  const [showTemplates, setShowTemplates] = useState(false)
+
+  return (
+    <div style={{ 
+      padding: '8px 16px', 
+      backgroundColor: '#f0f0f0', 
+      borderTop: '1px solid #e0e0e0',
+      position: 'relative'
+    }}>
+      <button
+        onClick={() => setShowTemplates(!showTemplates)}
+        disabled={disabled}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '6px 12px',
+          backgroundColor: 'white',
+          border: '1px solid #d1d5db',
+          borderRadius: '6px',
+          fontSize: '13px',
+          color: '#374151',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.6 : 1
+        }}
+      >
+        <MessageSquare size={14} />
+        Respuestas rápidas
+      </button>
+
+      {showTemplates && (
+        <div style={{
+          position: 'absolute',
+          bottom: '100%',
+          left: '16px',
+          right: '16px',
+          marginBottom: '8px',
+          backgroundColor: 'white',
+          border: '1px solid #e0e0e0',
+          borderRadius: '8px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          padding: '8px',
+          maxHeight: '200px',
+          overflowY: 'auto',
+          zIndex: 1000
+        }}>
+          {QUICK_REPLIES.map((template, index) => (
+            <button
+              key={index}
+              onClick={() => {
+                onSelect(template)
+                setShowTemplates(false)
+              }}
+              disabled={disabled}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                textAlign: 'left',
+                border: 'none',
+                backgroundColor: 'transparent',
+                borderRadius: '4px',
+                fontSize: '14px',
+                color: '#111827',
+                cursor: disabled ? 'not-allowed' : 'pointer',
+                opacity: disabled ? 0.6 : 1
+              }}
+              onMouseEnter={(e) => {
+                if (!disabled) {
+                  e.currentTarget.style.backgroundColor = '#f3f4f6'
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent'
+              }}
+            >
+              {template}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface ConversationDetailProps {
   conversation: ConversationDetail
@@ -164,6 +261,12 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
         })}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Plantillas de respuestas rápidas */}
+      <QuickReplyTemplates 
+        onSelect={(template) => setNewMessage(template)}
+        disabled={isSending}
+      />
 
       {/* Input de mensaje estilo WhatsApp */}
       <div className="whatsapp-input-container">

@@ -17,6 +17,7 @@ const auth_1 = __importDefault(require("./routes/auth"));
 const webhook360_1 = __importDefault(require("./routes/webhook360"));
 const wa360_test_1 = __importDefault(require("./routes/wa360_test"));
 const aiStats_1 = __importDefault(require("./routes/aiStats"));
+const stats_1 = __importDefault(require("./routes/stats"));
 const app = (0, express_1.default)();
 app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT || 4000);
@@ -39,6 +40,7 @@ app.use('/api/webhook/whatsapp', express_1.default.raw({ type: 'application/json
 app.use('/api/conversations', session_1.requireSession, conversations_1.default);
 app.use('/api/whatsapp', session_1.requireSession, whatsapp_1.default);
 app.use('/api/ai', aiStats_1.default);
+app.use('/api/stats', stats_1.default);
 // Rutas protegidas por API key
 app.use('/api/wa360/test', (0, security_1.requireApiKey)(), wa360_test_1.default);
 // 404 catch-all (SIN '*')
