@@ -1,4 +1,6 @@
+import { Timestamp } from 'firebase-admin/firestore';
 export declare function getDb(): FirebaseFirestore.Firestore;
+export { Timestamp };
 export declare const collections: {
     conversations: () => FirebaseFirestore.CollectionReference<FirebaseFirestore.DocumentData, FirebaseFirestore.DocumentData>;
     messages: (conversationId: string) => FirebaseFirestore.CollectionReference<FirebaseFirestore.DocumentData, FirebaseFirestore.DocumentData>;

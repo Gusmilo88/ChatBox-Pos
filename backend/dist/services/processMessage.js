@@ -23,4 +23,3 @@ async function processInbound(from, text) {
     });
     return result.replies;
 }
-//# sourceMappingURL=processMessage.js.map

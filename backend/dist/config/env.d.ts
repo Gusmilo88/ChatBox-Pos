@@ -15,6 +15,8 @@ export declare const config: {
     outboxPollIntervalMs: number;
     outboxBatchSize: number;
     whatsappDriver: "mock" | "cloud" | "local";
+    whatsappToken: string;
+    whatsappPhoneNumberId: string;
 };
 export default config;
 //# sourceMappingURL=env.d.ts.map

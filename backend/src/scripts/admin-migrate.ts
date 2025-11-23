@@ -30,12 +30,14 @@ async function main() {
     }
     
   } catch (error) {
-    console.error('❌ Error durante la migración:', error.message)
+    const msg = (error instanceof Error) ? error.message : String(error);
+    console.error('❌ Error durante la migración:', msg)
     process.exit(1)
   }
 }
 
 main().catch(error => {
-  console.error('❌ Error inesperado:', error)
+  const msg = (error instanceof Error) ? error.message : String(error);
+  console.error('❌ Error inesperado:', msg)
   process.exit(1)
 })

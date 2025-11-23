@@ -47,10 +47,11 @@ export function requireSession(req: Request, res: Response, next: NextFunction) 
 
     next()
   } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
     logger.warn('session_invalid', {
       ip: req.ip,
       path: req.path,
-      error: error.message
+      error: msg
     })
     return res.status(401).json({ error: 'Sesión inválida' })
   }

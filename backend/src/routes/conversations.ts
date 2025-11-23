@@ -69,7 +69,8 @@ router.get('/',
       // const result = await listConversations(req.query)
       // res.json(result)
     } catch (error) {
-      logger.error('error_listing_conversations', { error: error.message })
+      const msg = (error instanceof Error) ? error.message : String(error);
+      logger.error('error_listing_conversations', { error: msg })
       res.status(500).json({ error: 'Error interno del servidor' })
     }
   }
@@ -126,13 +127,14 @@ router.get('/:id',
       const conversation = await getConversationById(id)
       res.json(conversation)
     } catch (error) {
-      if (error.message === 'Conversación no encontrada') {
+      const msg = (error instanceof Error) ? error.message : String(error);
+      if (msg === 'Conversación no encontrada') {
         return res.status(404).json({ error: 'Conversación no encontrada' })
       }
       
       logger.error('error_getting_conversation', { 
         conversationId: req.params.id,
-        error: error.message 
+        error: msg 
       })
       res.status(500).json({ error: 'Error interno del servidor' })
     }
@@ -150,9 +152,10 @@ router.post('/simulate/incoming',
       const result = await simulateIncoming(req.body)
       res.status(201).json(result)
     } catch (error) {
+      const msg = (error instanceof Error) ? error.message : String(error);
       logger.error('error_simulating_incoming', { 
         phone: req.body.phone,
-        error: error.message 
+        error: msg 
       })
       res.status(500).json({ error: 'Error interno del servidor' })
     }
@@ -171,9 +174,10 @@ router.post('/:id/reply',
       res.status(202).json({ ok: true })
       
     } catch (error) {
+      const msg = (error instanceof Error) ? error.message : String(error);
       logger.error('error_sending_reply', { 
         conversationId: req.params.id,
-        error: error.message 
+        error: msg 
       })
       res.status(500).json({ error: 'Error interno del servidor' })
     }

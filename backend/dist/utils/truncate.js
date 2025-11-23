@@ -19,4 +19,3 @@ function truncateText(text, maxLength = 600) {
     }
     return truncated + '...';
 }
-//# sourceMappingURL=truncate.js.map

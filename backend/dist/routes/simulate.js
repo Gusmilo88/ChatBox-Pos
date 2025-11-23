@@ -93,4 +93,3 @@ router.post('/ai', async (req, res) => {
     }
 });
 exports.default = router;
-//# sourceMappingURL=simulate.js.map

@@ -32,11 +32,11 @@ async function createAdmin() {
         logger_1.default.info('🔑 Password: admin123');
     }
     catch (error) {
-        logger_1.default.error('❌ Error creating admin user', { error: error.message });
+        const msg = (error instanceof Error) ? error.message : String(error);
+        logger_1.default.error('❌ Error creating admin user', { error: msg });
         process.exit(1);
     }
 }
 if (require.main === module) {
     createAdmin();
 }
-//# sourceMappingURL=create-admin.js.map

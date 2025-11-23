@@ -3,6 +3,7 @@ declare class OutboxWorker {
     private driver;
     private isRunning;
     private intervalId?;
+    constructor();
     start(): Promise<void>;
     stop(): Promise<void>;
     private processBatch;

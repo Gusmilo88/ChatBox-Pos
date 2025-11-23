@@ -14,11 +14,19 @@ const logger_1 = __importDefault(require("../libs/logger"));
 function requireSession(req, res, next) {
     try {
         const token = req.cookies?.[env_1.config.sessionCookieName];
+        logger_1.default.debug('session_check', {
+            path: req.path,
+            hasCookies: !!req.cookies,
+            cookieName: env_1.config.sessionCookieName,
+            hasToken: !!token,
+            tokenLength: token?.length || 0
+        });
         if (!token) {
             logger_1.default.warn('session_missing', {
                 ip: req.ip,
                 path: req.path,
-                userAgent: req.get('User-Agent')
+                userAgent: req.get('User-Agent'),
+                cookies: Object.keys(req.cookies || {})
             });
             return res.status(401).json({ error: 'No autenticado' });
         }
@@ -29,10 +37,11 @@ function requireSession(req, res, next) {
         next();
     }
     catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.warn('session_invalid', {
             ip: req.ip,
             path: req.path,
-            error: error.message
+            error: msg
         });
         return res.status(401).json({ error: 'Sesión inválida' });
     }
@@ -58,10 +67,16 @@ function requireRole(roles) {
 // Crear cookie de sesión
 function createSessionCookie(token) {
     const maxAge = env_1.config.sessionTTLMinutes * 60; // convertir a segundos
-    return `${env_1.config.sessionCookieName}=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}; Path=/`;
+    // En desarrollo local, no usar Secure ni SameSite=Strict
+    const isProduction = process.env.NODE_ENV === 'production';
+    const secureFlag = isProduction ? 'Secure' : '';
+    const sameSiteFlag = isProduction ? 'SameSite=Strict' : 'SameSite=Lax';
+    return `${env_1.config.sessionCookieName}=${token}; HttpOnly; ${secureFlag}; ${sameSiteFlag}; Max-Age=${maxAge}; Path=/`;
 }
 // Limpiar cookie de sesión
 function clearSessionCookie() {
-    return `${env_1.config.sessionCookieName}=; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Path=/`;
+    const isProduction = process.env.NODE_ENV === 'production';
+    const secureFlag = isProduction ? 'Secure' : '';
+    const sameSiteFlag = isProduction ? 'SameSite=Strict' : 'SameSite=Lax';
+    return `${env_1.config.sessionCookieName}=; HttpOnly; ${secureFlag}; ${sameSiteFlag}; Max-Age=0; Path=/`;
 }
-//# sourceMappingURL=session.js.map

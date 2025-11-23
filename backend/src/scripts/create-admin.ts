@@ -33,7 +33,8 @@ async function createAdmin() {
     logger.info('🔑 Password: admin123')
     
   } catch (error) {
-    logger.error('❌ Error creating admin user', { error: error.message })
+    const msg = (error instanceof Error) ? error.message : String(error);
+    logger.error('❌ Error creating admin user', { error: msg })
     process.exit(1)
   }
 }

@@ -95,8 +95,9 @@ Ejemplos:
         console.log(`🔑 Rol: ${role}`);
     }
     catch (error) {
-        console.error('❌ Error creando administrador:', error.message);
-        if (error.message.includes('ya está registrado')) {
+        const msg = (error instanceof Error) ? error.message : String(error);
+        console.error('❌ Error creando administrador:', msg);
+        if (msg.includes('ya está registrado')) {
             console.log('💡 El email ya existe en la base de datos');
         }
         process.exit(1);
@@ -106,4 +107,3 @@ main().catch(error => {
     console.error('❌ Error inesperado:', error);
     process.exit(1);
 });
-//# sourceMappingURL=admin-add.js.map

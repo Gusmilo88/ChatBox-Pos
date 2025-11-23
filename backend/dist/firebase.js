@@ -1,9 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.collections = void 0;
+exports.collections = exports.Timestamp = void 0;
 exports.getDb = getDb;
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
+Object.defineProperty(exports, "Timestamp", { enumerable: true, get: function () { return firestore_1.Timestamp; } });
 function fromEnv() {
     const pj = process.env.FIREBASE_PROJECT_ID;
     const email = process.env.FIREBASE_CLIENT_EMAIL;
@@ -50,10 +51,9 @@ function getDb() {
 }
 // Helpers para colecciones
 exports.collections = {
-    conversations: () => getDb().collection('conversations'),
-    messages: (conversationId) => getDb().collection('conversations').doc(conversationId).collection('messages'),
-    outbox: () => getDb().collection('outbox'),
-    admins: () => getDb().collection('admins'),
-    audit: () => getDb().collection('audit')
+    conversations: (db) => (db || getDb()).collection('conversations'),
+    messages: (conversationId, db) => (db || getDb()).collection('conversations').doc(conversationId).collection('messages'),
+    outbox: (db) => (db || getDb()).collection('outbox'),
+    admins: (db) => (db || getDb()).collection('admins'),
+    audit: (db) => (db || getDb()).collection('audit')
 };
-//# sourceMappingURL=firebase.js.map

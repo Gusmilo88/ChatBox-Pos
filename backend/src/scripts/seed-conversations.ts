@@ -140,7 +140,8 @@ async function createAdminUser() {
 
     logger.info('Admin user created: posyasociados@hotmail.com / EstudioPos2025')
   } catch (error) {
-    logger.error('Error creating admin user', { error: error.message })
+    const msg = (error instanceof Error) ? error.message : String(error);
+    logger.error('Error creating admin user', { error: msg })
   }
 }
 
@@ -172,7 +173,8 @@ async function main() {
     logger.info('Admin credentials: posyasociados@hotmail.com / EstudioPos2025')
     
   } catch (error) {
-    logger.error('Seed failed', { error: error.message })
+    const msg = (error instanceof Error) ? error.message : String(error);
+    logger.error('Seed failed', { error: msg })
     process.exit(1)
   }
 }

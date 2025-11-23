@@ -32,16 +32,16 @@ async function simulateMessage() {
         console.log(`🆔 ID Conversación: ${response.data.conversationId}`);
     }
     catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('Simulation failed', {
-            error: error.message,
+            error: msg,
             response: error.response?.data
         });
         console.error('❌ Error al simular mensaje:');
-        console.error(error.response?.data || error.message);
+        console.error(error.response?.data || msg);
         process.exit(1);
     }
 }
 if (require.main === module) {
     simulateMessage();
 }
-//# sourceMappingURL=simulate-one.js.map

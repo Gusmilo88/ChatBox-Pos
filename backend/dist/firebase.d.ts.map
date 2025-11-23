@@ -1,1 +1,1 @@
-{"version":3,"file":"firebase.d.ts","sourceRoot":"","sources":["../src/firebase.ts"],"names":[],"mappings":"AA0BA,wBAAgB,KAAK,IAAI,iBAAiB,CAAC,SAAS,CAmBnD;AAGD,eAAO,MAAM,WAAW;;+BAEK,MAAM;;;;CAIlC,CAAA"}
+{"version":3,"file":"firebase.d.ts","sourceRoot":"","sources":["../src/firebase.ts"],"names":[],"mappings":"AACA,OAAO,EAAgB,SAAS,EAAE,MAAM,0BAA0B,CAAA;AAyBlE,wBAAgB,KAAK,IAAI,iBAAiB,CAAC,SAAS,CAmBnD;AAED,OAAO,EAAE,SAAS,EAAE,CAAA;AAGpB,eAAO,MAAM,WAAW;;+BAEK,MAAM;;;;CAIlC,CAAA"}

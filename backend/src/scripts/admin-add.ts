@@ -31,7 +31,7 @@ async function main() {
         i++
       } else if (arg === '--role' && args[i + 1]) {
         if (args[i + 1] === 'owner' || args[i + 1] === 'operador') {
-          role = args[i + 1]
+          role = args[i + 1] as 'owner' | 'operador'
         } else {
           console.error('❌ Rol inválido. Debe ser "owner" o "operador"')
           process.exit(1)
@@ -95,9 +95,10 @@ Ejemplos:
     console.log(`🔑 Rol: ${role}`)
     
   } catch (error) {
-    console.error('❌ Error creando administrador:', error.message)
+    const msg = (error instanceof Error) ? error.message : String(error);
+    console.error('❌ Error creando administrador:', msg)
     
-    if (error.message.includes('ya está registrado')) {
+    if (msg.includes('ya está registrado')) {
       console.log('💡 El email ya existe en la base de datos')
     }
     

@@ -86,7 +86,8 @@ export class FSMSessionManager {
 
     // Si está en cualquier estado de cliente y dice "hola", volver al menú del cliente si tiene CUIT
     // PERO NO si ya está en START (para evitar loops)
-    if (session.state !== FSMState.START && [FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN].includes(session.state) && ['hola', 'holi', 'holis', 'buenos días', 'buenas tardes', 'buenas noches', 'saludos'].includes(msg)) {
+    const isGreeting = ['hola','holi','holis','buenos días','buenas tardes','buenas noches','saludos'].includes(msg);
+    if (session.state !== FSMState.START && [FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN].includes(session.state as FSMState) && isGreeting) {
       if (session.data.cuit) {
         session.state = FSMState.CLIENTE_MENU;
         logger.info(`Sesión ${session.id} volvió al menú del cliente desde ${session.state}`);
@@ -101,7 +102,7 @@ export class FSMSessionManager {
 
     // Si está en cualquier estado y dice algo que no es comando específico, volver al inicio
     // PERO NO en estados que manejan opciones 1/2/3/4/5
-    if ([FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN, FSMState.NO_CLIENTE_RESPONSABLE].includes(session.state)) {
+    if ([FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN, FSMState.NO_CLIENTE_RESPONSABLE].includes(session.state as FSMState)) {
       // Si es texto corto (1-2 caracteres) o no es comando específico, volver al inicio
       if (text.length <= 2 || !['1', '2', '3', '4', '5', 'menu', 'inicio', 'volver', 'start', 'humano'].includes(msg)) {
         session.state = FSMState.START;

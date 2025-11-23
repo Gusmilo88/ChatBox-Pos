@@ -58,9 +58,10 @@ async function login(email, password) {
         return user;
     }
     catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('login_error', {
             email: email.toLowerCase(),
-            error: error.message
+            error: msg
         });
         throw error;
     }
@@ -90,7 +91,8 @@ function verifySessionToken(token) {
         };
     }
     catch (error) {
-        logger_1.default.warn('session_token_verification_failed', { error: error.message });
+        const msg = (error instanceof Error) ? error.message : String(error);
+        logger_1.default.warn('session_token_verification_failed', { error: msg });
         throw new Error('Token de sesión inválido');
     }
 }
@@ -122,9 +124,10 @@ async function createAdmin(email, password, role = 'operador') {
         return adminRef.id;
     }
     catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('error_creating_admin', {
             email: email.toLowerCase(),
-            error: error.message
+            error: msg
         });
         throw error;
     }
@@ -158,9 +161,10 @@ async function migratePasswords() {
                     logger_1.default.info('password_migrated', { adminId: doc.id });
                 }
                 catch (error) {
-                    const errorMsg = `Error migrando admin ${doc.id}: ${error.message}`;
+                    const msg = (error instanceof Error) ? error.message : String(error);
+                    const errorMsg = `Error migrando admin ${doc.id}: ${msg}`;
                     errors.push(errorMsg);
-                    logger_1.default.error('password_migration_error', { adminId: doc.id, error: error.message });
+                    logger_1.default.error('password_migration_error', { adminId: doc.id, error: msg });
                 }
             }
         }
@@ -168,8 +172,8 @@ async function migratePasswords() {
         return { migrated, errors };
     }
     catch (error) {
-        logger_1.default.error('password_migration_failed', { error: error.message });
+        const msg = (error instanceof Error) ? error.message : String(error);
+        logger_1.default.error('password_migration_failed', { error: msg });
         throw error;
     }
 }
-//# sourceMappingURL=auth.js.map

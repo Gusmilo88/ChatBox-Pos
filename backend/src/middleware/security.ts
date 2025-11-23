@@ -1,6 +1,6 @@
 import helmet from 'helmet'
 import cors from 'cors'
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
+import rateLimit from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
 import type { Request, Response, NextFunction } from 'express'
 import logger from '../libs/logger'
@@ -72,6 +72,7 @@ export function globalRateLimit() {
     max,
     standardHeaders: true,
     legacyHeaders: false,
+    // Usar keyGenerator por defecto que maneja IPv6 correctamente
     handler: (req, res) => {
       logger.warn('rate_limit_exceeded', {
         ip: req.ip,
@@ -90,7 +91,7 @@ export function messageRateLimit() {
     max: 10, // 10 mensajes por minuto por IP
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: ipKeyGenerator,
+    // Usar keyGenerator por defecto que maneja IPv6 correctamente
     handler: (req, res) => {
       logger.warn('message_rate_limit_exceeded', {
         ip: req.ip,
@@ -121,15 +122,16 @@ export function requireAuth() {
       }
 
       const adminData = adminDoc.data()
-      req.user = {
-        id: adminDoc.id,
-        email: adminData.email,
-        role: adminData.role || 'operador'
+      ;(req as any).user = {
+        adminId: adminDoc.id,
+        email: adminData?.email ?? 'unknown@local',
+        role: (adminData?.role as 'owner' | 'operador') ?? 'operador'
       } as AuthUser
 
       next()
     } catch (error) {
-      logger.error('auth_middleware_failed', { error: error.message })
+      const msg = (error instanceof Error) ? error.message : String(error);
+      logger.error('auth_middleware_failed', { error: msg })
       return res.status(401).json({ error: 'Token inválido' })
     }
   }
@@ -166,7 +168,7 @@ export function requireRole(roles: string[]) {
 
     if (!roles.includes(req.user.role)) {
       logger.warn('insufficient_role', {
-        userId: req.user.id,
+        userId: req.user.adminId,
         userRole: req.user.role,
         requiredRoles: roles
       })
@@ -197,8 +199,9 @@ export function validateInput(schema: any) {
       req.body = result.data
       next()
     } catch (error) {
-      logger.error('validation_middleware_error', { error: error.message })
-      return res.status(500).json({ error: 'Error de validación' })
+      const msg = (error as Error)?.message ?? String(error);
+      logger.error('validation_middleware_error', { error: msg });
+      return res.status(500).json({ error: 'Error de validación' });
     }
   }
 }
@@ -223,8 +226,9 @@ export function validateQuery(schema: any) {
       req.query = result.data
       next()
     } catch (error) {
-      logger.error('validation_middleware_error', { error: error.message })
-      return res.status(500).json({ error: 'Error de validación' })
+      const msg = (error as Error)?.message ?? String(error);
+      logger.error('validation_middleware_error', { error: msg });
+      return res.status(500).json({ error: 'Error de validación' });
     }
   }
 }
@@ -239,7 +243,7 @@ export function auditLog(action: string) {
       if (req.user) {
         collections.audit().add({
           action,
-          userId: req.user.id,
+          userId: req.user.adminId,
           email: req.user.email,
           timestamp: new Date(),
           ip: req.ip,
@@ -248,7 +252,8 @@ export function auditLog(action: string) {
           method: req.method,
           statusCode: res.statusCode
         }).catch(err => {
-          logger.error('audit_log_failed', { error: err.message })
+          const msg = (err instanceof Error) ? err.message : String(err);
+          logger.error('audit_log_failed', { error: msg })
         })
       }
       

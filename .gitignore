@@ -45,3 +45,9 @@ Thumbs.db
 /backend/node_modules/
 /backend/.env
 /backend/.DS_Store
+/backend/secrets/
+backend/secrets/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json

@@ -46,4 +46,3 @@ function requireApiKey() {
         return res.status(401).json({ error: 'unauthorized' });
     };
 }
-//# sourceMappingURL=security.js.map

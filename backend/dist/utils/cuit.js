@@ -25,4 +25,3 @@ function validarCUIT(cuit) {
     const checkDigit = remainder < 2 ? remainder : 11 - remainder;
     return checkDigit === digits[10];
 }
-//# sourceMappingURL=cuit.js.map

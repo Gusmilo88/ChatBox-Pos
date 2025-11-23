@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -48,7 +15,7 @@ exports.validateQuery = validateQuery;
 exports.auditLog = auditLog;
 const helmet_1 = __importDefault(require("helmet"));
 const cors_1 = __importDefault(require("cors"));
-const express_rate_limit_1 = __importStar(require("express-rate-limit"));
+const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const logger_1 = __importDefault(require("../libs/logger"));
 const firebase_1 = require("../firebase");
@@ -111,6 +78,7 @@ function globalRateLimit() {
         max,
         standardHeaders: true,
         legacyHeaders: false,
+        keyGenerator: (req) => (req.ip || req.socket?.remoteAddress || 'unknown'),
         handler: (req, res) => {
             logger_1.default.warn('rate_limit_exceeded', {
                 ip: req.ip,
@@ -128,7 +96,7 @@ function messageRateLimit() {
         max: 10, // 10 mensajes por minuto por IP
         standardHeaders: true,
         legacyHeaders: false,
-        keyGenerator: express_rate_limit_1.ipKeyGenerator,
+        keyGenerator: (req) => req.ip || req.socket.remoteAddress || 'unknown',
         handler: (req, res) => {
             logger_1.default.warn('message_rate_limit_exceeded', {
                 ip: req.ip,
@@ -155,14 +123,15 @@ function requireAuth() {
             }
             const adminData = adminDoc.data();
             req.user = {
-                id: adminDoc.id,
-                email: adminData.email,
-                role: adminData.role || 'operador'
+                adminId: adminDoc.id,
+                email: adminData?.email ?? 'unknown@local',
+                role: adminData?.role ?? 'operador'
             };
             next();
         }
         catch (error) {
-            logger_1.default.error('auth_middleware_failed', { error: error.message });
+            const msg = (error instanceof Error) ? error.message : String(error);
+            logger_1.default.error('auth_middleware_failed', { error: msg });
             return res.status(401).json({ error: 'Token inválido' });
         }
     };
@@ -193,7 +162,7 @@ function requireRole(roles) {
         }
         if (!roles.includes(req.user.role)) {
             logger_1.default.warn('insufficient_role', {
-                userId: req.user.id,
+                userId: req.user.adminId,
                 userRole: req.user.role,
                 requiredRoles: roles
             });
@@ -221,7 +190,8 @@ function validateInput(schema) {
             next();
         }
         catch (error) {
-            logger_1.default.error('validation_middleware_error', { error: error.message });
+            const msg = error?.message ?? String(error);
+            logger_1.default.error('validation_middleware_error', { error: msg });
             return res.status(500).json({ error: 'Error de validación' });
         }
     };
@@ -245,7 +215,8 @@ function validateQuery(schema) {
             next();
         }
         catch (error) {
-            logger_1.default.error('validation_middleware_error', { error: error.message });
+            const msg = error?.message ?? String(error);
+            logger_1.default.error('validation_middleware_error', { error: msg });
             return res.status(500).json({ error: 'Error de validación' });
         }
     };
@@ -259,7 +230,7 @@ function auditLog(action) {
             if (req.user) {
                 firebase_1.collections.audit().add({
                     action,
-                    userId: req.user.id,
+                    userId: req.user.adminId,
                     email: req.user.email,
                     timestamp: new Date(),
                     ip: req.ip,
@@ -268,7 +239,8 @@ function auditLog(action) {
                     method: req.method,
                     statusCode: res.statusCode
                 }).catch(err => {
-                    logger_1.default.error('audit_log_failed', { error: err.message });
+                    const msg = (err instanceof Error) ? err.message : String(err);
+                    logger_1.default.error('audit_log_failed', { error: msg });
                 });
             }
             return originalSend.call(this, data);
@@ -276,4 +248,3 @@ function auditLog(action) {
         next();
     };
 }
-//# sourceMappingURL=security.js.map

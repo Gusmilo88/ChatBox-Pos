@@ -132,13 +132,14 @@ export async function listConversations(params: {
     })
 
     return {
-      items,
+      conversations: items,
       page,
       pageSize,
       total
     }
   } catch (error) {
-    logger.error('error_listing_conversations', { error: error.message })
+    const msg = (error instanceof Error) ? error.message : String(error);
+    logger.error('error_listing_conversations', { error: msg })
     throw new Error('Error al listar conversaciones')
   }
 }
@@ -172,32 +173,34 @@ export async function getConversationById(id: string): Promise<ConversationDetai
 
     const conversation: ConversationDetail = {
       id: conversationDoc.id,
-      phone: conversationData.phone,
-      name: conversationData.name,
-      isClient: conversationData.isClient || false,
-      needsReply: conversationData.needsReply || false,
+      phone: conversationData?.phone ?? '',
+      name: conversationData?.name,
+      isClient: conversationData?.isClient ?? false,
+      needsReply: conversationData?.needsReply ?? false,
       messages
     }
 
     logger.info('conversation_retrieved', {
       conversationId: id,
-      phone: maskPII(conversationData.phone),
+      phone: maskPII(conversationData?.phone ?? ''),
       messageCount: messages.length
     })
 
     return conversation
   } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
     logger.error('error_getting_conversation', { 
       conversationId: id, 
-      error: error.message 
+      error: msg 
     })
     throw new Error('Error al obtener conversación')
   }
 }
 
 export async function simulateIncoming(request: IncomingMessageRequest): Promise<{ conversationId: string }> {
+  const { phone, text, via = 'manual' } = request
+  
   try {
-    const { phone, text, via = 'manual' } = request
     const normalizedPhone = normalizePhone(phone)
     const sanitizedText = sanitizeText(text)
     const now = new Date()
@@ -267,9 +270,10 @@ export async function simulateIncoming(request: IncomingMessageRequest): Promise
 
     return { conversationId }
   } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
     logger.error('error_simulating_incoming', { 
       phone: maskPII(phone), 
-      error: error.message 
+      error: msg 
     })
     throw new Error('Error al simular mensaje entrante')
   }
@@ -298,18 +302,19 @@ export async function enqueueReply(conversationId: string, request: ReplyRequest
     await appendOperatorMessage(conversationId, sanitizedText)
 
     // 2. Encolar en outbox para envío
-    await enqueueOutbox(conversationId, conversationData.phone, sanitizedText, idempotencyKey)
+    await enqueueOutbox(conversationId, conversationData?.phone ?? '', sanitizedText, idempotencyKey)
 
     logger.info('reply_enqueued_successfully', {
       conversationId,
-      phone: maskPII(conversationData.phone),
+      phone: maskPII(conversationData?.phone ?? ''),
       textLength: sanitizedText.length,
       idempotencyKey
     })
   } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
     logger.error('error_enqueuing_reply', { 
       conversationId, 
-      error: error.message 
+      error: msg 
     })
     throw new Error('Error al encolar respuesta')
   }
@@ -340,7 +345,6 @@ export async function appendOperatorMessage(
       text: sanitizeText(text),
       from: 'operador',
       timestamp: now.toISOString(),
-      isFromUs: true,
       deliveryStatus: 'pending'
     }
 
@@ -363,9 +367,10 @@ export async function appendOperatorMessage(
 
     return messageId
   } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
     logger.error('error_adding_operator_message', {
       conversationId,
-      error: error.message
+      error: msg
     })
     throw error
   }
@@ -407,9 +412,10 @@ export async function enqueueOutbox(
 
     return outboxId
   } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
     logger.error('error_enqueuing_message', {
       conversationId,
-      error: error.message
+      error: msg
     })
     throw error
   }
@@ -445,10 +451,11 @@ export async function markMessageDelivery(
       status
     })
   } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
     logger.error('error_updating_delivery_status', {
       conversationId,
       messageId,
-      error: error.message
+      error: msg
     })
     throw error
   }

@@ -130,7 +130,8 @@ async function createAdminUser() {
         logger_1.default.info('Admin user created: posyasociados@hotmail.com / EstudioPos2025');
     }
     catch (error) {
-        logger_1.default.error('Error creating admin user', { error: error.message });
+        const msg = (error instanceof Error) ? error.message : String(error);
+        logger_1.default.error('Error creating admin user', { error: msg });
     }
 }
 async function main() {
@@ -155,11 +156,11 @@ async function main() {
         logger_1.default.info('Admin credentials: posyasociados@hotmail.com / EstudioPos2025');
     }
     catch (error) {
-        logger_1.default.error('Seed failed', { error: error.message });
+        const msg = (error instanceof Error) ? error.message : String(error);
+        logger_1.default.error('Seed failed', { error: msg });
         process.exit(1);
     }
 }
 if (require.main === module) {
     main();
 }
-//# sourceMappingURL=seed-conversations.js.map

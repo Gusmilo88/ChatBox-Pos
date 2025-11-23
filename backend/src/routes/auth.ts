@@ -78,10 +78,11 @@ router.post('/login',
       
       res.status(401).json({ error: 'Credenciales inválidas' })
     } catch (error) {
+      const msg = (error instanceof Error) ? error.message : String(error);
       logger.warn('login_failed', {
         email: req.body.email,
         ip: req.ip,
-        error: error.message
+        error: msg
       })
       
       res.status(500).json({ error: 'Error interno del servidor' })
@@ -104,7 +105,8 @@ router.post('/logout',
       res.setHeader('Set-Cookie', clearSessionCookie())
       res.json({ ok: true })
     } catch (error) {
-      logger.error('logout_failed', { error: error.message })
+      const msg = (error instanceof Error) ? error.message : String(error);
+      logger.error('logout_failed', { error: msg })
       res.status(500).json({ error: 'Error interno del servidor' })
     }
   }
@@ -120,7 +122,8 @@ router.get('/me',
         role: req.user!.role
       })
     } catch (error) {
-      logger.error('error_getting_user_info', { error: error.message })
+      const msg = (error instanceof Error) ? error.message : String(error);
+      logger.error('error_getting_user_info', { error: msg })
       res.status(500).json({ error: 'Error interno del servidor' })
     }
   }

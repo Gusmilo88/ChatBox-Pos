@@ -72,9 +72,10 @@ export async function login(email: string, password: string): Promise<AuthUser> 
 
     return user
   } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
     logger.error('login_error', { 
       email: email.toLowerCase(), 
-      error: error.message 
+      error: msg 
     })
     throw error
   }
@@ -110,7 +111,8 @@ export function verifySessionToken(token: string): AuthUser {
       role: decoded.role
     }
   } catch (error) {
-    logger.warn('session_token_verification_failed', { error: error.message })
+    const msg = (error instanceof Error) ? error.message : String(error);
+    logger.warn('session_token_verification_failed', { error: msg })
     throw new Error('Token de sesión inválido')
   }
 }
@@ -148,9 +150,10 @@ export async function createAdmin(email: string, password: string, role: 'owner'
 
     return adminRef.id
   } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
     logger.error('error_creating_admin', { 
       email: email.toLowerCase(), 
-      error: error.message 
+      error: msg 
     })
     throw error
   }
@@ -190,9 +193,10 @@ export async function migratePasswords(): Promise<{ migrated: number, errors: st
           migrated++
           logger.info('password_migrated', { adminId: doc.id })
         } catch (error) {
-          const errorMsg = `Error migrando admin ${doc.id}: ${error.message}`
+          const msg = (error instanceof Error) ? error.message : String(error);
+          const errorMsg = `Error migrando admin ${doc.id}: ${msg}`
           errors.push(errorMsg)
-          logger.error('password_migration_error', { adminId: doc.id, error: error.message })
+          logger.error('password_migration_error', { adminId: doc.id, error: msg })
         }
       }
     }
@@ -200,7 +204,8 @@ export async function migratePasswords(): Promise<{ migrated: number, errors: st
     logger.info('password_migration_completed', { migrated, errors: errors.length })
     return { migrated, errors }
   } catch (error) {
-    logger.error('password_migration_failed', { error: error.message })
+    const msg = (error instanceof Error) ? error.message : String(error);
+    logger.error('password_migration_failed', { error: msg })
     throw error
   }
 }

@@ -22,4 +22,3 @@ function createWhatsAppDriver(type) {
 }
 var mock_2 = require("./mock");
 Object.defineProperty(exports, "MockWhatsAppDriver", { enumerable: true, get: function () { return mock_2.MockWhatsAppDriver; } });
-//# sourceMappingURL=index.js.map

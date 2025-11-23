@@ -18,7 +18,7 @@ const router = Router();
 const fsmManager = new FSMSessionManager();
 const leadsRepo = new LeadsRepository(config.leadsFile);
 
-router.post('/simulate/message', async (req, res) => {
+router.post('/message', async (req, res) => {
   try {
     // Validar request
     const validationResult = MessageRequestSchema.safeParse(req.body);

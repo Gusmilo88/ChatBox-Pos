@@ -109,7 +109,8 @@ class FSMSessionManager {
         }
         // Si está en cualquier estado de cliente y dice "hola", volver al menú del cliente si tiene CUIT
         // PERO NO si ya está en START (para evitar loops)
-        if (session.state !== states_1.FSMState.START && [states_1.FSMState.HUMANO, states_1.FSMState.CLIENTE_REUNION, states_1.FSMState.CLIENTE_ARCA, states_1.FSMState.CLIENTE_FACTURA, states_1.FSMState.CLIENTE_VENTAS, states_1.FSMState.CLIENTE_IVAN].includes(session.state) && ['hola', 'holi', 'holis', 'buenos días', 'buenas tardes', 'buenas noches', 'saludos'].includes(msg)) {
+        const isGreeting = ['hola', 'holi', 'holis', 'buenos días', 'buenas tardes', 'buenas noches', 'saludos'].includes(msg);
+        if (session.state !== states_1.FSMState.START && [states_1.FSMState.HUMANO, states_1.FSMState.CLIENTE_REUNION, states_1.FSMState.CLIENTE_ARCA, states_1.FSMState.CLIENTE_FACTURA, states_1.FSMState.CLIENTE_VENTAS, states_1.FSMState.CLIENTE_IVAN].includes(session.state) && isGreeting) {
             if (session.data.cuit) {
                 session.state = states_1.FSMState.CLIENTE_MENU;
                 logger_1.default.info(`Sesión ${session.id} volvió al menú del cliente desde ${session.state}`);
@@ -469,4 +470,3 @@ class FSMSessionManager {
     }
 }
 exports.FSMSessionManager = FSMSessionManager;
-//# sourceMappingURL=engine.js.map

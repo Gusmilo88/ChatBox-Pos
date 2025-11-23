@@ -229,4 +229,3 @@ class ClientsRepository {
 exports.ClientsRepository = ClientsRepository;
 // Instancia global para Excel
 const excelRepo = new ClientsRepository('./data/base_noclientes.xlsx');
-//# sourceMappingURL=clientsRepo.js.map

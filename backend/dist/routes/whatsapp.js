@@ -1,110 +1,151 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const zod_1 = require("zod");
-const crypto_1 = __importDefault(require("crypto"));
-const logger_1 = __importDefault(require("../libs/logger"));
-const processMessage_1 = require("../services/processMessage");
+const logger_1 = require("../utils/logger");
+const session_1 = require("../middleware/session");
+const whatsappSender_1 = require("../services/whatsappSender");
 const router = (0, express_1.Router)();
-// Esquema de validación para el webhook de WhatsApp
-const WhatsAppWebhookSchema = zod_1.z.object({
-    object: zod_1.z.string(),
-    entry: zod_1.z.array(zod_1.z.object({
-        changes: zod_1.z.array(zod_1.z.object({
-            value: zod_1.z.object({
-                messages: zod_1.z.array(zod_1.z.object({
-                    from: zod_1.z.string(),
-                    id: zod_1.z.string(),
-                    timestamp: zod_1.z.string(),
-                    type: zod_1.z.string(),
-                    text: zod_1.z.object({
-                        body: zod_1.z.string()
-                    }).optional()
-                })).optional()
-            }).optional()
-        })).optional()
-    })).optional()
+// Schema de validación para el envío de mensajes
+const sendMessageSchema = zod_1.z.object({
+    to: zod_1.z.string()
+        .min(1, 'El número de teléfono es requerido')
+        .regex(/^\+[1-9]\d{1,14}$/, 'Formato de número inválido. Use formato internacional (ej: +541151093439)'),
+    text: zod_1.z.string()
+        .min(1, 'El texto del mensaje es requerido')
+        .max(4096, 'El mensaje no puede exceder 4096 caracteres')
 });
-// Función para verificar firma de Meta
-function verifySignature(appSecret, raw, header) {
-    const expected = 'sha256=' + crypto_1.default.createHmac('sha256', appSecret).update(raw).digest('hex');
-    const a = Buffer.from(expected);
-    const b = Buffer.from(header || '');
-    return a.length === b.length && crypto_1.default.timingSafeEqual(a, b);
-}
-// GET /webhook/whatsapp - Verificación inicial
-router.get('/', (req, res) => {
-    const { 'hub.mode': mode, 'hub.verify_token': verifyToken, 'hub.challenge': challenge } = req.query;
-    if (mode === 'subscribe' && verifyToken === process.env.WHATSAPP_VERIFY_TOKEN) {
-        logger_1.default.info('WhatsApp webhook verified', { mode, challenge });
-        return res.status(200).send(challenge);
-    }
-    logger_1.default.warn('WhatsApp webhook verification failed', { mode, verifyToken });
-    return res.status(403).json({ error: 'verification_failed' });
-});
-// POST /webhook/whatsapp - Mensajes entrantes
-router.post('/', (req, res) => {
+/**
+ * POST /api/whatsapp/send
+ * Envía un mensaje de WhatsApp a través de la Cloud API de Meta
+ *
+ * Body:
+ * {
+ *   "to": "+541151093439",
+ *   "text": "Mensaje de prueba"
+ * }
+ *
+ * Respuesta exitosa:
+ * {
+ *   "success": true,
+ *   "messageId": "wamid.HBgM...",
+ *   "status": "sent",
+ *   "mock": false
+ * }
+ *
+ * Respuesta mock (si no hay configuración):
+ * {
+ *   "success": true,
+ *   "messageId": "mock_1234567890_abc123",
+ *   "status": "sent",
+ *   "mock": true,
+ *   "message": "Simulación de envío"
+ * }
+ */
+router.post('/send', session_1.requireSession, // Requiere autenticación
+async (req, res) => {
     try {
-        // Verificar firma si APP_SECRET está configurado
-        const appSecret = process.env.APP_SECRET;
-        if (appSecret) {
-            const signature = req.header('x-hub-signature-256');
-            const rawBody = req.body;
-            if (!signature || !verifySignature(appSecret, rawBody, signature)) {
-                logger_1.default.warn('Invalid WhatsApp signature', { signature: signature?.slice(0, 10) + '...' });
-                return res.status(401).json({ error: 'invalid_signature' });
-            }
+        // Validar el cuerpo de la petición
+        const validation = sendMessageSchema.safeParse(req.body);
+        if (!validation.success) {
+            logger_1.logger.warn('whatsapp_validation_error', {
+                errors: validation.error.errors,
+                user: req.user?.email
+            });
+            return res.status(400).json({
+                error: 'Datos de entrada inválidos',
+                details: validation.error.errors.map(err => ({
+                    field: err.path.join('.'),
+                    message: err.message
+                }))
+            });
         }
-        // Validar estructura del webhook
-        const validationResult = WhatsAppWebhookSchema.safeParse(req.body);
-        if (!validationResult.success) {
-            logger_1.default.warn('Invalid WhatsApp webhook structure', { errors: validationResult.error.issues });
-            return res.status(400).json({ error: 'invalid_webhook_structure' });
-        }
-        const data = validationResult.data;
-        let processedMessages = 0;
-        // Procesar mensajes de texto
-        if (data.entry) {
-            for (const entry of data.entry) {
-                if (entry.changes) {
-                    for (const change of entry.changes) {
-                        if (change.value?.messages) {
-                            for (const message of change.value.messages) {
-                                if (message.type === 'text' && message.text?.body) {
-                                    // Procesar mensaje con FSM
-                                    (0, processMessage_1.processInbound)(message.from, message.text.body)
-                                        .then(replies => {
-                                        logger_1.default.info('WhatsApp message processed', {
-                                            from: message.from.slice(0, 3) + '***' + message.from.slice(-2),
-                                            messageId: message.id,
-                                            repliesCount: replies.length
-                                        });
-                                    })
-                                        .catch(error => {
-                                        logger_1.default.error('Error processing WhatsApp message', { error, messageId: message.id });
-                                    });
-                                    processedMessages++;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        logger_1.default.info('WhatsApp webhook received', {
-            object: data.object,
-            processedMessages
+        const { to, text } = validation.data;
+        logger_1.logger.info('whatsapp_send_request', {
+            to: to.replace(/\d(?=\d{4})/g, '*'), // Enmascarar número
+            textLength: text.length,
+            user: req.user?.email,
+            isConfigured: (0, whatsappSender_1.isWhatsAppConfigured)()
         });
-        // Responder rápidamente a Meta
-        res.status(200).json({ received: true, n_messages: processedMessages });
+        // Enviar mensaje a través de WhatsApp Cloud API
+        const result = await (0, whatsappSender_1.sendWhatsAppMessage)(to, text);
+        if (result.success) {
+            logger_1.logger.info('whatsapp_send_success', {
+                messageId: result.messageId,
+                to: to.replace(/\d(?=\d{4})/g, '*'),
+                user: req.user?.email,
+                mock: result.mock || false
+            });
+            // Respuesta exitosa
+            const response = {
+                success: true,
+                messageId: result.messageId,
+                status: result.status
+            };
+            // Si es mock, agregar información adicional
+            if (result.mock) {
+                response.mock = true;
+                response.message = 'Simulación de envío - WhatsApp no configurado';
+            }
+            return res.status(200).json(response);
+        }
+        else {
+            logger_1.logger.error('whatsapp_send_failed', {
+                error: result.error,
+                to: to.replace(/\d(?=\d{4})/g, '*'),
+                user: req.user?.email
+            });
+            return res.status(500).json({
+                success: false,
+                error: result.error || 'Error al enviar mensaje',
+                status: result.status
+            });
+        }
     }
     catch (error) {
-        logger_1.default.error('WhatsApp webhook error', { error });
-        res.status(500).json({ error: 'internal_server_error' });
+        logger_1.logger.error('whatsapp_route_error', {
+            error: error instanceof Error ? error.message : 'Error desconocido',
+            user: req.user?.email
+        });
+        return res.status(500).json({
+            success: false,
+            error: 'Error interno del servidor',
+            status: 'failed'
+        });
+    }
+});
+/**
+ * GET /api/whatsapp/status
+ * Verifica el estado de configuración del servicio WhatsApp
+ *
+ * Respuesta:
+ * {
+ *   "configured": true/false,
+ *   "message": "WhatsApp configurado correctamente" | "WhatsApp en modo simulación"
+ * }
+ */
+router.get('/status', session_1.requireSession, async (req, res) => {
+    try {
+        const configured = (0, whatsappSender_1.isWhatsAppConfigured)();
+        logger_1.logger.info('whatsapp_status_check', {
+            configured,
+            user: req.user?.email
+        });
+        return res.status(200).json({
+            configured,
+            message: configured
+                ? 'WhatsApp configurado correctamente'
+                : 'WhatsApp en modo simulación - Configure WHATSAPP_TOKEN y WHATSAPP_PHONE_NUMBER_ID'
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('whatsapp_status_error', {
+            error: error instanceof Error ? error.message : 'Error desconocido',
+            user: req.user?.email
+        });
+        return res.status(500).json({
+            error: 'Error al verificar estado de WhatsApp'
+        });
     }
 });
 exports.default = router;
-//# sourceMappingURL=whatsapp.js.map

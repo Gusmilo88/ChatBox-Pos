@@ -47,4 +47,3 @@ exports.STATE_TEXTS = {
     [FSMState.NO_CLIENTE_CONSULTA]: "📌 **Estado de mi Consulta**\n\nPara poder ubicar tu consulta, por favor escribí tu Nombre y Apellido completos ✍️.\n\nSi la consulta se hizo dentro de las últimas 24 horas, quedate tranquilo/a: la estamos procesando y te vamos a responder lo antes posible.\nSi ya pasó más tiempo, revisamos tu caso y te damos prioridad en la respuesta.",
     [FSMState.HUMANO]: "Listo, te derivamos con el equipo. ¡Gracias! 🙌"
 };
-//# sourceMappingURL=states.js.map

@@ -101,14 +101,15 @@ async function listConversations(params) {
             filters: { query: maskPII(query), isClient, needsReply }
         });
         return {
-            items,
+            conversations: items,
             page,
             pageSize,
             total
         };
     }
     catch (error) {
-        logger_1.default.error('error_listing_conversations', { error: error.message });
+        const msg = (error instanceof Error) ? error.message : String(error);
+        logger_1.default.error('error_listing_conversations', { error: msg });
         throw new Error('Error al listar conversaciones');
     }
 }
@@ -120,14 +121,14 @@ async function getConversationById(id) {
         }
         const conversationData = conversationDoc.data();
         // Obtener mensajes
-        const messagesSnapshot = await firebase_1.collections.messages(id)
-            .orderBy('ts', 'asc')
+        const messagesSnapshot = await conversationDoc.ref.collection('messages')
+            .orderBy('timestamp', 'asc')
             .get();
         const messages = messagesSnapshot.docs.map(doc => {
             const data = doc.data();
             return {
                 id: doc.id,
-                ts: data.ts?.toDate?.()?.toISOString() || new Date().toISOString(),
+                timestamp: data.timestamp || data.ts?.toDate?.()?.toISOString() || new Date().toISOString(),
                 from: data.from,
                 text: data.text,
                 via: data.via,
@@ -136,30 +137,31 @@ async function getConversationById(id) {
         });
         const conversation = {
             id: conversationDoc.id,
-            phone: conversationData.phone,
-            name: conversationData.name,
-            isClient: conversationData.isClient || false,
-            needsReply: conversationData.needsReply || false,
+            phone: conversationData?.phone ?? '',
+            name: conversationData?.name,
+            isClient: conversationData?.isClient ?? false,
+            needsReply: conversationData?.needsReply ?? false,
             messages
         };
         logger_1.default.info('conversation_retrieved', {
             conversationId: id,
-            phone: maskPII(conversationData.phone),
+            phone: maskPII(conversationData?.phone ?? ''),
             messageCount: messages.length
         });
         return conversation;
     }
     catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('error_getting_conversation', {
             conversationId: id,
-            error: error.message
+            error: msg
         });
         throw new Error('Error al obtener conversación');
     }
 }
 async function simulateIncoming(request) {
+    const { phone, text, via = 'manual' } = request;
     try {
-        const { phone, text, via = 'manual' } = request;
         const normalizedPhone = normalizePhone(phone);
         const sanitizedText = sanitizeText(text);
         const now = new Date();
@@ -221,9 +223,10 @@ async function simulateIncoming(request) {
         return { conversationId };
     }
     catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('error_simulating_incoming', {
             phone: maskPII(phone),
-            error: error.message
+            error: msg
         });
         throw new Error('Error al simular mensaje entrante');
     }
@@ -245,18 +248,19 @@ async function enqueueReply(conversationId, request) {
         // 1. Agregar mensaje del operador a la conversación (optimista)
         await appendOperatorMessage(conversationId, sanitizedText);
         // 2. Encolar en outbox para envío
-        await enqueueOutbox(conversationId, conversationData.phone, sanitizedText, idempotencyKey);
+        await enqueueOutbox(conversationId, conversationData?.phone ?? '', sanitizedText, idempotencyKey);
         logger_1.default.info('reply_enqueued_successfully', {
             conversationId,
-            phone: maskPII(conversationData.phone),
+            phone: maskPII(conversationData?.phone ?? ''),
             textLength: sanitizedText.length,
             idempotencyKey
         });
     }
     catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('error_enqueuing_reply', {
             conversationId,
-            error: error.message
+            error: msg
         });
         throw new Error('Error al encolar respuesta');
     }
@@ -280,7 +284,6 @@ async function appendOperatorMessage(conversationId, text) {
             text: sanitizeText(text),
             from: 'operador',
             timestamp: now.toISOString(),
-            isFromUs: true,
             deliveryStatus: 'pending'
         };
         // Guardar mensaje en subcolección
@@ -300,9 +303,10 @@ async function appendOperatorMessage(conversationId, text) {
         return messageId;
     }
     catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('error_adding_operator_message', {
             conversationId,
-            error: error.message
+            error: msg
         });
         throw error;
     }
@@ -335,9 +339,10 @@ async function enqueueOutbox(conversationId, phone, text, idempotencyKey) {
         return outboxId;
     }
     catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('error_enqueuing_message', {
             conversationId,
-            error: error.message
+            error: msg
         });
         throw error;
     }
@@ -366,12 +371,12 @@ async function markMessageDelivery(conversationId, messageId, status) {
         });
     }
     catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('error_updating_delivery_status', {
             conversationId,
             messageId,
-            error: error.message
+            error: msg
         });
         throw error;
     }
 }
-//# sourceMappingURL=conversations.js.map

@@ -1,7 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const router = (0, express_1.Router)();
-router.get('/', (_req, res) => res.json({ ok: true }));
-exports.default = router;
-//# sourceMappingURL=health.js.map
+const r = (0, express_1.Router)();
+r.get('/health', (_req, res) => {
+    res.json({ ok: true, service: 'chatbot-backend', time: new Date().toISOString() });
+});
+exports.default = r;
