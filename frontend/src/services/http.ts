@@ -40,13 +40,21 @@ export async function getConversations(params: {
   const searchParams = new URLSearchParams()
   
   Object.entries(params).forEach(([key, value]) => {
+    // Solo agregar si tiene valor y no es undefined
     if (value !== undefined && value !== null && value !== '') {
-      searchParams.append(key, String(value))
+      // Para booleanos, convertir a string explícitamente
+      if (typeof value === 'boolean') {
+        searchParams.append(key, value ? 'true' : 'false')
+      } else {
+        searchParams.append(key, String(value))
+      }
     }
   })
 
   const queryString = searchParams.toString()
   const endpoint = `/api/conversations${queryString ? `?${queryString}` : ''}`
+  
+  console.log('Fetching conversations with params:', { ...params, query: params.query ? '***' : undefined })
   
   return apiRequest<ConversationListResponse>(endpoint)
 }

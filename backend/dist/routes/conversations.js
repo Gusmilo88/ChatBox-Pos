@@ -17,8 +17,24 @@ const listConversationsSchema = zod_1.z.object({
     to: zod_1.z.string().optional(),
     page: zod_1.z.coerce.number().min(1).max(100).default(1),
     pageSize: zod_1.z.coerce.number().min(1).max(50).default(25),
-    isClient: zod_1.z.coerce.boolean().optional(),
-    needsReply: zod_1.z.coerce.boolean().optional()
+    isClient: zod_1.z.preprocess((val) => {
+        if (val === undefined || val === null || val === '')
+            return undefined;
+        if (val === 'true' || val === true)
+            return true;
+        if (val === 'false' || val === false)
+            return false;
+        return undefined;
+    }, zod_1.z.boolean().optional()),
+    needsReply: zod_1.z.preprocess((val) => {
+        if (val === undefined || val === null || val === '')
+            return undefined;
+        if (val === 'true' || val === true)
+            return true;
+        if (val === 'false' || val === false)
+            return false;
+        return undefined;
+    }, zod_1.z.boolean().optional())
 });
 const incomingMessageSchema = zod_1.z.object({
     phone: zod_1.z.string().min(1).max(20),
@@ -33,21 +49,34 @@ const replySchema = zod_1.z.object({
 router.get('/', session_1.requireSession, async (req, res) => {
     try {
         logger_1.default.info('Listing conversations request', {
-            query: req.query,
-            hasQuery: !!req.query.query
+            rawQuery: req.query,
+            hasQuery: !!req.query.query,
+            hasFrom: !!req.query.from,
+            hasTo: !!req.query.to,
+            isClient: req.query.isClient,
+            needsReply: req.query.needsReply
         });
         const validatedParams = listConversationsSchema.parse(req.query);
+        logger_1.default.info('Validated params', {
+            ...validatedParams,
+            query: validatedParams.query ? '***' : undefined
+        });
         const result = await (0, conversations_1.listConversations)(validatedParams);
         logger_1.default.info('Conversations listed successfully', {
             total: result.total,
             returned: result.conversations.length,
-            page: result.page
+            page: result.page,
+            pageSize: result.pageSize
         });
         res.json(result);
     }
     catch (error) {
         const msg = (error instanceof Error) ? error.message : String(error);
-        logger_1.default.error('error_listing_conversations', { error: msg, stack: error?.stack });
+        logger_1.default.error('error_listing_conversations', {
+            error: msg,
+            stack: error?.stack,
+            query: req.query
+        });
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });

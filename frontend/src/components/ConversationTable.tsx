@@ -322,23 +322,24 @@ export function ConversationTable({
                     : 'white',
                   borderLeft: conversation.needsReply ? '4px solid #dc2626' : conversation.unreadCount > 0 ? '4px solid #3b82f6' : '4px solid transparent',
                   cursor: 'pointer',
-                  transition: 'all 0.2s ease',
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                   position: 'relative',
                   borderRadius: '8px',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                  marginBottom: '8px'
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03)',
+                  marginBottom: '8px',
+                  overflow: 'hidden'
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.backgroundColor = conversation.needsReply ? '#fee2e2' : '#e0f2fe'
-                  e.currentTarget.style.transform = 'translateX(2px)'
-                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)'
+                  e.currentTarget.style.transform = 'translateX(4px) scale(1.01)'
+                  e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.08)'
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = conversation.unreadCount > 0 
                     ? (conversation.needsReply ? '#fef2f2' : '#f0f9ff')
                     : 'white'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)'
+                  e.currentTarget.style.transform = 'translateX(0) scale(1)'
+                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03)'
                 }}
               >
                 <td style={{ padding: '16px', fontWeight: '500' }}>

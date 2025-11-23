@@ -25,8 +25,24 @@ const listConversationsSchema = z.object({
   to: z.string().optional(),
   page: z.coerce.number().min(1).max(100).default(1),
   pageSize: z.coerce.number().min(1).max(50).default(25),
-  isClient: z.coerce.boolean().optional(),
-  needsReply: z.coerce.boolean().optional()
+  isClient: z.preprocess(
+    (val) => {
+      if (val === undefined || val === null || val === '') return undefined
+      if (val === 'true' || val === true) return true
+      if (val === 'false' || val === false) return false
+      return undefined
+    },
+    z.boolean().optional()
+  ),
+  needsReply: z.preprocess(
+    (val) => {
+      if (val === undefined || val === null || val === '') return undefined
+      if (val === 'true' || val === true) return true
+      if (val === 'false' || val === false) return false
+      return undefined
+    },
+    z.boolean().optional()
+  )
 })
 
 const incomingMessageSchema = z.object({
@@ -46,23 +62,37 @@ router.get('/',
   async (req, res) => {
     try {
       logger.info('Listing conversations request', { 
-        query: req.query,
-        hasQuery: !!req.query.query 
+        rawQuery: req.query,
+        hasQuery: !!req.query.query,
+        hasFrom: !!req.query.from,
+        hasTo: !!req.query.to,
+        isClient: req.query.isClient,
+        needsReply: req.query.needsReply
       })
       
       const validatedParams = listConversationsSchema.parse(req.query)
+      logger.info('Validated params', { 
+        ...validatedParams, 
+        query: validatedParams.query ? '***' : undefined 
+      })
+      
       const result = await listConversations(validatedParams)
       
       logger.info('Conversations listed successfully', { 
         total: result.total,
         returned: result.conversations.length,
-        page: result.page 
+        page: result.page,
+        pageSize: result.pageSize
       })
       
       res.json(result)
     } catch (error) {
       const msg = (error instanceof Error) ? error.message : String(error);
-      logger.error('error_listing_conversations', { error: msg, stack: (error as Error)?.stack })
+      logger.error('error_listing_conversations', { 
+        error: msg, 
+        stack: (error as Error)?.stack,
+        query: req.query
+      })
       res.status(500).json({ error: 'Error interno del servidor' })
     }
   }

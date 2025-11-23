@@ -53,47 +53,138 @@ function sanitizeText(text) {
 async function listConversations(params) {
     const { query = '', from, to, page = 1, pageSize = 25, isClient, needsReply } = params;
     try {
-        let queryRef = firebase_1.collections.conversations().orderBy('lastMessageAt', 'desc');
-        // Filtros
-        if (isClient !== undefined) {
-            queryRef = queryRef.where('isClient', '==', isClient);
-        }
-        if (needsReply !== undefined) {
-            queryRef = queryRef.where('needsReply', '==', needsReply);
-        }
-        if (from) {
-            queryRef = queryRef.where('lastMessageAt', '>=', from);
-        }
-        if (to) {
-            queryRef = queryRef.where('lastMessageAt', '<=', to);
-        }
-        // Paginación
-        const offset = (page - 1) * pageSize;
-        queryRef = queryRef.offset(offset).limit(pageSize);
-        const snapshot = await queryRef.get();
-        logger_1.default.info('Firestore query result', {
-            totalDocs: snapshot.size,
+        logger_1.default.info('listConversations called', {
+            query: maskPII(query),
+            from,
+            to,
+            isClient,
+            needsReply,
             page,
-            pageSize,
-            hasQuery: !!query
+            pageSize
         });
-        const items = [];
-        // Primero filtrar por búsqueda de texto si existe
-        let filteredDocs = snapshot.docs;
-        if (query) {
-            const queryLower = query.toLowerCase();
-            filteredDocs = snapshot.docs.filter(doc => {
+        // ESTRATEGIA: Obtener todos los documentos y filtrar en memoria
+        // Esto evita problemas con índices compuestos de Firestore
+        const allDocsSnapshot = await firebase_1.collections.conversations()
+            .orderBy('lastMessageAt', 'desc')
+            .get();
+        logger_1.default.info('Firestore query result (all docs)', {
+            totalDocs: allDocsSnapshot.size
+        });
+        // Aplicar TODOS los filtros en memoria
+        let filteredDocs = allDocsSnapshot.docs;
+        // Filtro por texto (teléfono o nombre)
+        if (query && query.trim()) {
+            const queryLower = query.trim().toLowerCase();
+            filteredDocs = filteredDocs.filter(doc => {
                 const data = doc.data();
                 const searchText = `${data.phone || ''} ${data.name || ''}`.toLowerCase();
                 return searchText.includes(queryLower);
             });
             logger_1.default.info('After text filter', {
-                originalCount: snapshot.size,
-                filteredCount: filteredDocs.length
+                originalCount: allDocsSnapshot.size,
+                filteredCount: filteredDocs.length,
+                query: maskPII(query)
             });
         }
-        // Obtener últimos mensajes en paralelo para todas las conversaciones
-        const lastMessagesPromises = filteredDocs.map(async (doc) => {
+        // Filtro por fecha "desde"
+        if (from) {
+            try {
+                const fromDate = new Date(from);
+                fromDate.setHours(0, 0, 0, 0); // Inicio del día
+                if (!isNaN(fromDate.getTime())) {
+                    const beforeCount = filteredDocs.length;
+                    filteredDocs = filteredDocs.filter(doc => {
+                        const data = doc.data();
+                        const lastMessageAt = data.lastMessageAt;
+                        if (!lastMessageAt)
+                            return false;
+                        // Convertir Timestamp a Date
+                        const docDate = lastMessageAt.toDate ? lastMessageAt.toDate() : new Date(lastMessageAt);
+                        return docDate >= fromDate;
+                    });
+                    logger_1.default.info('Applied from filter', {
+                        from,
+                        beforeCount,
+                        afterCount: filteredDocs.length
+                    });
+                }
+                else {
+                    logger_1.default.warn('Invalid from date', { from });
+                }
+            }
+            catch (error) {
+                logger_1.default.error('Error parsing from date', { from, error: error?.message });
+            }
+        }
+        // Filtro por fecha "hasta"
+        if (to) {
+            try {
+                const toDate = new Date(to);
+                toDate.setHours(23, 59, 59, 999); // Final del día
+                if (!isNaN(toDate.getTime())) {
+                    const beforeCount = filteredDocs.length;
+                    filteredDocs = filteredDocs.filter(doc => {
+                        const data = doc.data();
+                        const lastMessageAt = data.lastMessageAt;
+                        if (!lastMessageAt)
+                            return false;
+                        // Convertir Timestamp a Date
+                        const docDate = lastMessageAt.toDate ? lastMessageAt.toDate() : new Date(lastMessageAt);
+                        return docDate <= toDate;
+                    });
+                    logger_1.default.info('Applied to filter', {
+                        to,
+                        beforeCount,
+                        afterCount: filteredDocs.length
+                    });
+                }
+                else {
+                    logger_1.default.warn('Invalid to date', { to });
+                }
+            }
+            catch (error) {
+                logger_1.default.error('Error parsing to date', { to, error: error?.message });
+            }
+        }
+        // Filtro por isClient
+        if (isClient !== undefined) {
+            const beforeCount = filteredDocs.length;
+            filteredDocs = filteredDocs.filter(doc => {
+                const data = doc.data();
+                return (data.isClient || false) === isClient;
+            });
+            logger_1.default.info('Applied isClient filter', {
+                isClient,
+                beforeCount,
+                afterCount: filteredDocs.length
+            });
+        }
+        // Filtro por needsReply
+        if (needsReply !== undefined) {
+            const beforeCount = filteredDocs.length;
+            filteredDocs = filteredDocs.filter(doc => {
+                const data = doc.data();
+                return (data.needsReply || false) === needsReply;
+            });
+            logger_1.default.info('Applied needsReply filter', {
+                needsReply,
+                beforeCount,
+                afterCount: filteredDocs.length
+            });
+        }
+        // Calcular total después de todos los filtros
+        const total = filteredDocs.length;
+        // Aplicar paginación
+        const offset = (page - 1) * pageSize;
+        const paginatedDocs = filteredDocs.slice(offset, offset + pageSize);
+        logger_1.default.info('Pagination applied', {
+            total,
+            offset,
+            pageSize,
+            paginatedCount: paginatedDocs.length
+        });
+        // Obtener últimos mensajes en paralelo para las conversaciones paginadas
+        const lastMessagesPromises = paginatedDocs.map(async (doc) => {
             let lastMessage;
             try {
                 const messagesRef = firebase_1.collections.messages(doc.id);
@@ -139,6 +230,7 @@ async function listConversations(params) {
         // Esperar todas las consultas de mensajes en paralelo
         const results = await Promise.all(lastMessagesPromises);
         // Construir items
+        const items = [];
         for (const { doc, lastMessage } of results) {
             const data = doc.data();
             const item = {
@@ -161,20 +253,24 @@ async function listConversations(params) {
                 hasLastMessage: !!i.lastMessage
             }))
         });
-        // Contar total (aproximado)
-        const totalSnapshot = await firebase_1.collections.conversations().get();
-        const total = totalSnapshot.size;
         logger_1.default.info('conversations_listed', {
             page,
             pageSize,
-            total: items.length,
-            filters: { query: maskPII(query), isClient, needsReply }
+            itemsReturned: items.length,
+            totalAfterFilters: total,
+            filters: {
+                query: maskPII(query),
+                from,
+                to,
+                isClient,
+                needsReply
+            }
         });
         return {
             conversations: items,
             page,
             pageSize,
-            total
+            total // Total después de aplicar todos los filtros
         };
     }
     catch (error) {
