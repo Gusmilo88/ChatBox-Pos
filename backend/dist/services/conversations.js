@@ -13,6 +13,7 @@ exports.markMessageDelivery = markMessageDelivery;
 const firebase_1 = require("../firebase");
 const uuid_1 = require("uuid");
 const logger_1 = __importDefault(require("../libs/logger"));
+const botReply_1 = require("./botReply");
 // Normalizar phone a E.164
 function normalizePhone(phone) {
     // Remover espacios y caracteres especiales
@@ -414,6 +415,48 @@ async function simulateIncoming(request) {
             textLength: sanitizedText.length,
             via
         });
+        // Generar respuesta automática usando IA (principal) o FSM (fallback)
+        try {
+            const botResponse = await (0, botReply_1.generateBotReply)(normalizedPhone, sanitizedText, conversationId);
+            if (botResponse.replies && botResponse.replies.length > 0) {
+                // Encolar respuestas automáticas
+                for (const reply of botResponse.replies) {
+                    const replyIdempotencyKey = `auto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    await enqueueOutbox(conversationId, normalizedPhone, reply, replyIdempotencyKey);
+                    // Guardar mensaje del sistema en la conversación
+                    const systemMessageId = (0, uuid_1.v4)();
+                    const systemMessageData = {
+                        ts: new Date(),
+                        from: 'system',
+                        text: reply,
+                        via: botResponse.via === 'ai' ? 'ia' : 'whatsapp',
+                        aiSuggested: botResponse.via === 'ai'
+                    };
+                    await firebase_1.collections.messages(conversationId).doc(systemMessageId).set(systemMessageData);
+                    logger_1.default.info('auto_reply_generated', {
+                        conversationId,
+                        phone: maskPII(normalizedPhone),
+                        via: botResponse.via,
+                        replyLength: reply.length
+                    });
+                }
+                // Actualizar conversación con último mensaje del sistema
+                await firebase_1.collections.conversations().doc(conversationId).update({
+                    lastMessageAt: new Date(),
+                    lastMessage: botResponse.replies[0],
+                    updatedAt: new Date()
+                });
+            }
+        }
+        catch (error) {
+            const msg = (error instanceof Error) ? error.message : String(error);
+            logger_1.default.error('error_generating_auto_reply', {
+                conversationId,
+                phone: maskPII(normalizedPhone),
+                error: msg
+            });
+            // No fallar la simulación si la respuesta automática falla
+        }
         return { conversationId };
     }
     catch (error) {

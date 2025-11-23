@@ -40,6 +40,10 @@ async function xl_getUltimos(cuit: string): Promise<string[]> {
 }
 
 // --- Firestore ---
+export async function getDoc(cuit: string): Promise<Cliente | null> {
+  return fb_getDoc(cuit);
+}
+
 async function fb_getDoc(cuit: string): Promise<Cliente | null> {
   const { getDb } = await import('../firebase')
   const db = getDb()

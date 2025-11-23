@@ -37,6 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ClientsRepository = void 0;
+exports.getDoc = getDoc;
 exports.existsByCuit = existsByCuit;
 exports.getSaldo = getSaldo;
 exports.getUltimosComprobantes = getUltimosComprobantes;
@@ -56,6 +57,9 @@ async function xl_getUltimos(cuit) {
     return excelRepo.getUltimosComprobantes(cuit);
 }
 // --- Firestore ---
+async function getDoc(cuit) {
+    return fb_getDoc(cuit);
+}
 async function fb_getDoc(cuit) {
     const { getDb } = await Promise.resolve().then(() => __importStar(require('../firebase')));
     const db = getDb();

@@ -341,7 +341,11 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
 
             {/* Mensajes del día */}
             {group.messages.map((message) => {
-              const isFromUs = message.from === 'system' || message.from === 'operador'
+              // Mensajes del bot/sistema van a la derecha (verde)
+              // Mensajes del usuario van a la izquierda (blanco)
+              // 'usuario' = mensaje entrante del cliente (izquierda, blanco)
+              // 'system', 'sistema', 'operador' = mensaje del bot (derecha, verde)
+              const isFromUs = message.from === 'system' || message.from === 'sistema' || message.from === 'operador'
               
               return (
                 <div

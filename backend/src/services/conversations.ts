@@ -2,6 +2,7 @@ import { collections } from '../firebase'
 import { v4 as uuidv4 } from 'uuid'
 import { Timestamp } from 'firebase-admin/firestore'
 import logger from '../libs/logger'
+import { generateBotReply } from './botReply'
 import type {
   ConversationListItem,
   ConversationListResponse,
@@ -469,6 +470,53 @@ export async function simulateIncoming(request: IncomingMessageRequest): Promise
       textLength: sanitizedText.length,
       via
     })
+
+    // Generar respuesta automática usando IA (principal) o FSM (fallback)
+    try {
+      const botResponse = await generateBotReply(normalizedPhone, sanitizedText, conversationId);
+      
+      if (botResponse.replies && botResponse.replies.length > 0) {
+        // Encolar respuestas automáticas
+        for (const reply of botResponse.replies) {
+          const replyIdempotencyKey = `auto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          await enqueueOutbox(conversationId, normalizedPhone, reply, replyIdempotencyKey);
+          
+          // Guardar mensaje del sistema en la conversación
+          const systemMessageId = uuidv4();
+          const systemMessageData = {
+            ts: new Date(),
+            from: 'system' as const,
+            text: reply,
+            via: botResponse.via === 'ai' ? 'ia' as const : 'whatsapp' as const,
+            aiSuggested: botResponse.via === 'ai'
+          };
+          
+          await collections.messages(conversationId).doc(systemMessageId).set(systemMessageData);
+          
+          logger.info('auto_reply_generated', {
+            conversationId,
+            phone: maskPII(normalizedPhone),
+            via: botResponse.via,
+            replyLength: reply.length
+          });
+        }
+        
+        // Actualizar conversación con último mensaje del sistema
+        await collections.conversations().doc(conversationId).update({
+          lastMessageAt: new Date(),
+          lastMessage: botResponse.replies[0],
+          updatedAt: new Date()
+        });
+      }
+    } catch (error) {
+      const msg = (error instanceof Error) ? error.message : String(error);
+      logger.error('error_generating_auto_reply', {
+        conversationId,
+        phone: maskPII(normalizedPhone),
+        error: msg
+      });
+      // No fallar la simulación si la respuesta automática falla
+    }
 
     return { conversationId }
   } catch (error) {
