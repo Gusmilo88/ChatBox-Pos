@@ -102,7 +102,8 @@ export class FSMSessionManager {
 
     // Si está en cualquier estado y dice algo que no es comando específico, volver al inicio
     // PERO NO en estados que manejan opciones 1/2/3/4/5
-    if ([FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_ARCA, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN, FSMState.NO_CLIENTE_RESPONSABLE].includes(session.state as FSMState)) {
+    // CLIENTE_ARCA maneja sus propias opciones 1/2, así que no lo incluimos aquí
+    if ([FSMState.HUMANO, FSMState.CLIENTE_REUNION, FSMState.CLIENTE_FACTURA, FSMState.CLIENTE_VENTAS, FSMState.CLIENTE_IVAN, FSMState.NO_CLIENTE_RESPONSABLE].includes(session.state as FSMState)) {
       // Si es texto corto (1-2 caracteres) o no es comando específico, volver al inicio
       if (text.length <= 2 || !['1', '2', '3', '4', '5', 'menu', 'inicio', 'volver', 'start', 'humano'].includes(msg)) {
         session.state = FSMState.START;
@@ -148,7 +149,7 @@ export class FSMSessionManager {
         return await this.handleClienteMenu(session, text);
       
       case FSMState.CLIENTE_ARCA:
-        return this.handleClienteArca(session, text);
+        return await this.handleClienteArca(session, text);
       
       case FSMState.CLIENTE_FACTURA:
         return this.handleClienteFactura(session, text);
@@ -394,17 +395,33 @@ export class FSMSessionManager {
   }
 
   // Handlers para los nuevos estados de cliente
-  private handleClienteArca(session: Session, text: string): string[] {
+  private async handleClienteArca(session: Session, text: string): Promise<string[]> {
     const raw = text.trim().toLowerCase();
     
     if (raw === '1' || raw.includes('gracias') || raw.includes('consulta') || raw.includes('app')) {
-      return ["¡Perfecto! 🎉 Cualquier duda que tengas, no dudes en consultarnos."];
+      // Obtener nombre del cliente para personalizar la respuesta
+      let nombreCliente = 'cliente';
+      if (session.data.cuit) {
+        try {
+          const { getDb } = await import('../firebase');
+          const db = getDb();
+          const snapshot = await db.collection('clientes').where('cuit', '==', session.data.cuit).limit(1).get();
+          if (!snapshot.empty) {
+            nombreCliente = snapshot.docs[0].data().nombre || 'cliente';
+          }
+        } catch (error) {
+          logger.error('Error obteniendo nombre del cliente en ARCA:', error);
+        }
+      }
+      // Volver al menú del cliente después de la respuesta
+      session.state = FSMState.CLIENTE_MENU;
+      return [`De nada ${nombreCliente}, cualquier cosa que necesites acá estoy 🤖`];
     }
     
     if (raw === '2' || raw.includes('persona') || raw.includes('asesor') || raw.includes('ayuda')) {
       session.state = FSMState.HUMANO;
       logger.info(`Sesión ${session.id} derivada a Belén Maidana (1131134588)`);
-      return ["Te derivamos con Belén Maidana (1131134588) para que te asista personalmente. ¡Gracias!"];
+      return ["Perfecto, ya te derivo con Belén Maidana 🤖"];
     }
     
     return [STATE_TEXTS[FSMState.CLIENTE_ARCA]];

@@ -78,7 +78,7 @@ function globalRateLimit() {
         max,
         standardHeaders: true,
         legacyHeaders: false,
-        keyGenerator: (req) => (req.ip || req.socket?.remoteAddress || 'unknown'),
+        // Usar keyGenerator por defecto que maneja IPv6 correctamente
         handler: (req, res) => {
             logger_1.default.warn('rate_limit_exceeded', {
                 ip: req.ip,
@@ -96,7 +96,7 @@ function messageRateLimit() {
         max: 10, // 10 mensajes por minuto por IP
         standardHeaders: true,
         legacyHeaders: false,
-        keyGenerator: (req) => req.ip || req.socket.remoteAddress || 'unknown',
+        // Usar keyGenerator por defecto que maneja IPv6 correctamente
         handler: (req, res) => {
             logger_1.default.warn('message_rate_limit_exceeded', {
                 ip: req.ip,

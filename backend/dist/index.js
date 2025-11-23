@@ -10,8 +10,10 @@ const logger_1 = __importDefault(require("./libs/logger"));
 const security_1 = require("./middleware/security");
 const session_1 = require("./middleware/session");
 const health_1 = __importDefault(require("./routes/health"));
+const simulate_1 = __importDefault(require("./routes/simulate"));
 const whatsapp_1 = __importDefault(require("./routes/whatsapp"));
 const conversations_1 = __importDefault(require("./routes/conversations"));
+const auth_1 = __importDefault(require("./routes/auth"));
 const webhook360_1 = __importDefault(require("./routes/webhook360"));
 const wa360_test_1 = __importDefault(require("./routes/wa360_test"));
 const app = (0, express_1.default)();
@@ -26,6 +28,10 @@ app.use((0, security_1.globalRateLimit)());
 // Rutas públicas
 app.use('/health', health_1.default);
 app.use('/api/health', health_1.default);
+// Autenticación (pública)
+app.use('/auth', auth_1.default);
+// Simulación (pública, para testing)
+app.use('/api/simulate', simulate_1.default);
 // 360dialog: webhook (raw body)
 app.use('/api/webhook/whatsapp', express_1.default.raw({ type: 'application/json' }), webhook360_1.default);
 // Rutas protegidas por sesión

@@ -19,7 +19,7 @@ const router = (0, express_1.Router)();
 // Instancias globales
 const fsmManager = new engine_1.FSMSessionManager();
 const leadsRepo = new leadsRepo_1.LeadsRepository(env_1.default.leadsFile);
-router.post('/simulate/message', async (req, res) => {
+router.post('/message', async (req, res) => {
     try {
         // Validar request
         const validationResult = MessageRequestSchema.safeParse(req.body);
