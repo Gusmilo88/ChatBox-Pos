@@ -36,13 +36,17 @@ export const api = {
     setLimit: setAiLimit
   },
 
-  // Estadísticas de conversaciones
-  stats: {
-    getConversations: async (): Promise<any> => {
-      const { getConversationStats } = await import('./http')
-      return getConversationStats()
-    }
-  },
+      // Estadísticas de conversaciones
+      stats: {
+        getConversations: async (): Promise<any> => {
+          const { getConversationStats } = await import('./http')
+          return getConversationStats()
+        },
+        getAdvanced: async (): Promise<any> => {
+          const { getAdvancedAnalytics } = await import('./http')
+          return getAdvancedAnalytics()
+        }
+      },
 
   // Respuestas automáticas
   autoReplies: {

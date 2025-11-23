@@ -7,6 +7,8 @@ import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { api } from '@/services/api'
 import type { AutoReplyRule } from '@/types/autoReplies'
 import { AutoReplyRuleForm } from '@/components/AutoReplyRuleForm'
+import { ConfirmModal } from '@/components/ConfirmModal'
+import { ToastContainer } from '@/components/Toast'
 import { Link } from 'react-router-dom'
 
 const DAYS = [
@@ -23,6 +25,20 @@ export function AutoRepliesPage() {
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editingRule, setEditingRule] = useState<AutoReplyRule | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; rule: AutoReplyRule | null }>({
+    isOpen: false,
+    rule: null
+  })
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type?: 'success' | 'error' | 'info' }>>([])
+
+  const addToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    const id = Date.now().toString()
+    setToasts(prev => [...prev, { id, message, type }])
+  }
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id))
+  }
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['autoReplies'],
@@ -33,6 +49,10 @@ export function AutoRepliesPage() {
     mutationFn: (id: string) => api.autoReplies.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['autoReplies'] })
+      addToast('Regla eliminada correctamente', 'success')
+    },
+    onError: () => {
+      addToast('Error al eliminar la regla', 'error')
     }
   })
 
@@ -173,9 +193,30 @@ export function AutoRepliesPage() {
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ['autoReplies'] })
             handleCloseForm()
+            addToast(
+              editingRule ? 'Regla actualizada correctamente' : 'Regla creada correctamente',
+              'success'
+            )
           }}
         />
       )}
+
+      <ConfirmModal
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => setDeleteConfirm({ isOpen: false, rule: null })}
+        onConfirm={() => {
+          if (deleteConfirm.rule?.id) {
+            deleteMutation.mutate(deleteConfirm.rule.id)
+            setDeleteConfirm({ isOpen: false, rule: null })
+          }
+        }}
+        title="Eliminar regla"
+        message={`¿Estás seguro de eliminar la regla "${deleteConfirm.rule?.name}"? Esta acción no se puede deshacer.`}
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={deleteMutation.isPending}
+      />
 
       {rules.length === 0 ? (
         <Card className="card" style={{ 
@@ -494,9 +535,7 @@ export function AutoRepliesPage() {
                   </button>
                   <button
                     onClick={() => {
-                      if (confirm(`¿Estás seguro de eliminar la regla "${rule.name}"?`)) {
-                        deleteMutation.mutate(rule.id!)
-                      }
+                      setDeleteConfirm({ isOpen: true, rule })
                     }}
                     disabled={deleteMutation.isPending}
                     style={{
@@ -526,6 +565,9 @@ export function AutoRepliesPage() {
           ))}
         </div>
       )}
+
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

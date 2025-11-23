@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireSession } from '../middleware/session';
-import { getConversationStats } from '../services/stats';
+import { getConversationStats, getAdvancedAnalytics } from '../services/stats';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -25,6 +25,27 @@ router.get('/conversations', async (req, res) => {
     return res.status(500).json({ 
       ok: false, 
       error: 'Error obteniendo estadísticas' 
+    });
+  }
+});
+
+/**
+ * GET /api/stats/advanced
+ * Obtiene analytics avanzados con gráficos y métricas detalladas
+ */
+router.get('/advanced', async (req, res) => {
+  try {
+    const analytics = await getAdvancedAnalytics();
+    return res.json({
+      ok: true,
+      data: analytics
+    });
+  } catch (error) {
+    const msg = (error as Error)?.message ?? String(error);
+    logger.error('Error getting advanced analytics:', msg);
+    return res.status(500).json({ 
+      ok: false, 
+      error: 'Error obteniendo analytics avanzados' 
     });
   }
 });

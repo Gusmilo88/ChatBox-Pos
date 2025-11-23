@@ -31,4 +31,25 @@ router.get('/conversations', async (req, res) => {
         });
     }
 });
+/**
+ * GET /api/stats/advanced
+ * Obtiene analytics avanzados con gráficos y métricas detalladas
+ */
+router.get('/advanced', async (req, res) => {
+    try {
+        const analytics = await (0, stats_1.getAdvancedAnalytics)();
+        return res.json({
+            ok: true,
+            data: analytics
+        });
+    }
+    catch (error) {
+        const msg = error?.message ?? String(error);
+        logger_1.default.error('Error getting advanced analytics:', msg);
+        return res.status(500).json({
+            ok: false,
+            error: 'Error obteniendo analytics avanzados'
+        });
+    }
+});
 exports.default = router;

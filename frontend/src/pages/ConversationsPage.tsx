@@ -6,6 +6,8 @@ import { ConversationFilters } from '@/components/ConversationFilters'
 import { EmptyState } from '@/components/EmptyState'
 import { AiStatusCard } from '@/components/AiStatusCard'
 import { StatsCard } from '@/components/StatsCard'
+import { AdvancedAnalytics } from '@/components/AdvancedAnalytics'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Tabs } from '@/components/Tabs'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -13,13 +15,13 @@ import { useAuth } from '@/hooks/useAuth'
 import { useNotifications } from '@/hooks/useNotifications'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { MessageSquare, BarChart3, LogOut, Settings } from 'lucide-react'
+import { MessageSquare, BarChart3, LogOut, Settings, TrendingUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 export function ConversationsPage() {
   const navigate = useNavigate()
   const { page, setPage, ...filters } = useFiltersStore()
-  const [activeTab, setActiveTab] = useState<'conversations' | 'stats'>('conversations')
+  const [activeTab, setActiveTab] = useState<'conversations' | 'stats' | 'analytics'>('conversations')
   const { logout } = useAuth()
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
 
@@ -165,6 +167,11 @@ export function ConversationsPage() {
       id: 'stats',
       label: 'Estadísticas',
       icon: <BarChart3 size={18} />
+    },
+    {
+      id: 'analytics',
+      label: 'Analytics',
+      icon: <BarChart3 size={18} />
     }
   ]
 
@@ -267,7 +274,7 @@ export function ConversationsPage() {
       <Tabs
         tabs={tabs}
         activeTab={activeTab}
-        onTabChange={(tabId) => setActiveTab(tabId as 'conversations' | 'stats')}
+        onTabChange={(tabId) => setActiveTab(tabId as 'conversations' | 'stats' | 'analytics')}
       >
         {activeTab === 'conversations' ? (
           <>
@@ -304,8 +311,12 @@ export function ConversationsPage() {
               />
             )}
           </>
-        ) : (
+        ) : activeTab === 'stats' ? (
           <StatsCard />
+        ) : (
+          <ErrorBoundary>
+            <AdvancedAnalytics />
+          </ErrorBoundary>
         )}
       </Tabs>
     </div>

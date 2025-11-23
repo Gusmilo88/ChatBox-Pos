@@ -94,4 +94,10 @@ export async function getConversationStats(): Promise<any> {
   return data.data
 }
 
+// Analytics avanzados
+export async function getAdvancedAnalytics(): Promise<any> {
+  const data = await apiRequest<{ ok: boolean; data: any }>('/api/stats/advanced')
+  return data.data
+}
+
 // Autenticación via cookies HttpOnly
