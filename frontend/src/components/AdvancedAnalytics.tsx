@@ -28,12 +28,18 @@ const COLORS = {
 }
 
 // Componente wrapper para gráficos que espera a que el DOM esté listo
-function ChartWrapper({ children, height }: { children: React.ReactNode; height: number }) {
+function ChartWrapper({ 
+  children, 
+  height 
+}: { 
+  children: React.ReactNode
+  height: number 
+}) {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    // Esperar a que React esté completamente montado antes de renderizar Recharts
-    const timer = setTimeout(() => setMounted(true), 100)
+    // Esperar a que el componente esté completamente montado
+    const timer = setTimeout(() => setMounted(true), 150)
     return () => clearTimeout(timer)
   }, [])
 
@@ -59,6 +65,8 @@ function ChartWrapper({ children, height }: { children: React.ReactNode; height:
 }
 
 export function AdvancedAnalytics() {
+  const [isComponentReady, setIsComponentReady] = useState(false)
+
   const { data: analytics, isLoading, error } = useQuery({
     queryKey: ['advanced-analytics'],
     queryFn: async () => {
@@ -75,6 +83,13 @@ export function AdvancedAnalytics() {
     retryDelay: 2000
   })
 
+  // Asegurar que el componente esté completamente montado antes de renderizar gráficos
+  useEffect(() => {
+    // Esperar a que el componente esté montado y React esté listo
+    const timer = setTimeout(() => setIsComponentReady(true), 250)
+    return () => clearTimeout(timer)
+  }, [])
+
   if (isLoading) {
     return (
       <div style={{ 
@@ -85,6 +100,14 @@ export function AdvancedAnalytics() {
         border: '1px solid #e5e7eb'
       }}>
         <LoadingSpinner text="Cargando analytics..." />
+        <p style={{ 
+          marginTop: '16px',
+          fontSize: '14px',
+          color: '#6b7280',
+          fontStyle: 'italic'
+        }}>
+          Esto puede tardar unos segundos, por favor esperá...
+        </p>
       </div>
     )
   }
@@ -119,6 +142,14 @@ export function AdvancedAnalytics() {
         border: '1px solid #e5e7eb'
       }}>
         <LoadingSpinner text="Cargando analytics..." />
+        <p style={{ 
+          marginTop: '16px',
+          fontSize: '14px',
+          color: '#6b7280',
+          fontStyle: 'italic'
+        }}>
+          Esto puede tardar unos segundos, por favor esperá...
+        </p>
       </div>
     )
   }
@@ -230,43 +261,81 @@ export function AdvancedAnalytics() {
         <p className="advanced-analytics-text" style={{ 
           fontSize: '14px', 
           color: '#6b7280',
-          margin: 0
+          margin: '0 0 16px 0',
+          lineHeight: '1.6'
         }}>
           Métricas detalladas y gráficos de rendimiento
         </p>
+        <div style={{
+          padding: '16px 20px',
+          backgroundColor: '#eff6ff',
+          borderRadius: '12px',
+          border: '1px solid #bfdbfe',
+          marginBottom: '8px'
+        }}>
+          <p className="advanced-analytics-text" style={{ 
+            fontSize: '14px', 
+            color: '#1e40af',
+            margin: 0,
+            lineHeight: '1.6'
+          }}>
+            <strong style={{ color: '#1e3a8a' }}>¿Qué estás viendo?</strong> Esta sección te muestra información detallada sobre cómo funciona tu sistema de atención al cliente. Aquí podés ver cuántas conversaciones tenés, cuánto tardás en responder, qué tan activo está tu bot, y mucho más. Todo está explicado de forma simple para que puedas entenderlo fácilmente.
+          </p>
+        </div>
       </div>
 
       {/* Métricas principales */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '16px',
-        marginBottom: '32px'
-      }}>
-        <MetricCard
-          icon={Clock}
-          label="Tiempo promedio de respuesta"
-          value={formatResponseTime(analytics.averageResponseTime || 0)}
-          color={COLORS.primary}
-        />
-        <MetricCard
-          icon={Zap}
-          label="Respuesta hoy"
-          value={formatResponseTime(analytics.responseTimeByPeriod?.today || 0)}
-          color={COLORS.secondary}
-        />
-        <MetricCard
-          icon={TrendingUp}
-          label="Respuesta esta semana"
-          value={formatResponseTime(analytics.responseTimeByPeriod?.thisWeek || 0)}
-          color={COLORS.accent}
-        />
-        <MetricCard
-          icon={Activity}
-          label="Respuesta este mes"
-          value={formatResponseTime(analytics.responseTimeByPeriod?.thisMonth || 0)}
-          color={COLORS.warning}
-        />
+      <div style={{ marginBottom: '24px' }}>
+        <h3 className="advanced-analytics-title" style={{ 
+          fontSize: '20px', 
+          fontWeight: '600', 
+          color: '#111827',
+          marginBottom: '8px'
+        }}>
+          ⏱️ Tiempos de Respuesta
+        </h3>
+        <p className="advanced-analytics-text" style={{ 
+          fontSize: '13px', 
+          color: '#6b7280',
+          marginBottom: '16px',
+          lineHeight: '1.5'
+        }}>
+          Estos números muestran cuánto tiempo promedio tardás en responder a tus clientes. <strong>Mientras más bajo sea el número, mejor.</strong> Por ejemplo, si dice "5min" significa que en promedio respondés en 5 minutos. Esto te ayuda a saber si estás siendo rápido o si necesitás mejorar.
+        </p>
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '16px'
+        }}>
+          <MetricCard
+            icon={Clock}
+            label="Tiempo promedio de respuesta"
+            value={formatResponseTime(analytics.averageResponseTime || 0)}
+            color={COLORS.primary}
+            description="El tiempo promedio que tardás en responder desde que un cliente envía un mensaje hasta que le respondés."
+          />
+          <MetricCard
+            icon={Zap}
+            label="Respuesta hoy"
+            value={formatResponseTime(analytics.responseTimeByPeriod?.today || 0)}
+            color={COLORS.secondary}
+            description="El tiempo promedio de respuesta solo de hoy. Te muestra cómo estás respondiendo en este momento."
+          />
+          <MetricCard
+            icon={TrendingUp}
+            label="Respuesta esta semana"
+            value={formatResponseTime(analytics.responseTimeByPeriod?.thisWeek || 0)}
+            color={COLORS.accent}
+            description="El tiempo promedio de respuesta de toda esta semana. Te da una idea de cómo fue tu rendimiento semanal."
+          />
+          <MetricCard
+            icon={Activity}
+            label="Respuesta este mes"
+            value={formatResponseTime(analytics.responseTimeByPeriod?.thisMonth || 0)}
+            color={COLORS.warning}
+            description="El tiempo promedio de respuesta de todo este mes. Te muestra tu rendimiento general del mes."
+          />
+        </div>
       </div>
 
       {/* Gráfico de conversaciones por día */}
@@ -276,10 +345,18 @@ export function AdvancedAnalytics() {
             fontSize: '18px', 
             fontWeight: '600', 
             color: '#111827',
-            marginBottom: '16px'
+            marginBottom: '8px'
           }}>
-            Conversaciones por día (últimos 30 días)
+            📊 Conversaciones por día (últimos 30 días)
           </h3>
+          <p className="advanced-analytics-text" style={{ 
+            fontSize: '13px', 
+            color: '#6b7280',
+            marginBottom: '16px',
+            lineHeight: '1.5'
+          }}>
+            Este gráfico muestra cuántas conversaciones tuviste cada día en el último mes. <strong>La línea azul</strong> muestra el total de conversaciones, <strong>la línea verde</strong> son clientes (personas que ya trabajan con vos), y <strong>la línea morada</strong> son leads (personas interesadas que aún no son clientes). Podés ver qué días fueron más activos y cómo va cambiando tu actividad.
+          </p>
           <div style={{ 
             padding: '20px',
             backgroundColor: '#f9fafb',
@@ -288,7 +365,7 @@ export function AdvancedAnalytics() {
             minHeight: '300px',
             width: '100%'
           }}>
-            {conversationsByDay.length > 0 ? (
+            {isComponentReady && conversationsByDay.length > 0 ? (
               <ChartWrapper height={300}>
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={conversationsByDay}>
@@ -366,10 +443,18 @@ export function AdvancedAnalytics() {
               fontSize: '18px', 
               fontWeight: '600', 
               color: '#111827',
-              marginBottom: '16px'
+              marginBottom: '8px'
             }}>
-              Actividad por hora del día
+              🕐 Actividad por hora del día
             </h3>
+            <p className="advanced-analytics-text" style={{ 
+              fontSize: '13px', 
+              color: '#6b7280',
+              marginBottom: '16px',
+              lineHeight: '1.5'
+            }}>
+              Este gráfico te muestra a qué horas del día recibís más mensajes. Las barras más altas indican horas con más actividad. <strong>Esto te ayuda a saber cuándo tus clientes están más activos</strong> y cuándo deberías estar más atento para responder rápido.
+            </p>
             <div style={{ 
               padding: '20px',
               backgroundColor: '#f9fafb',
@@ -378,7 +463,7 @@ export function AdvancedAnalytics() {
               minHeight: '250px',
               width: '100%'
             }}>
-              {conversationsByHour.length > 0 ? (
+              {isComponentReady && conversationsByHour.length > 0 ? (
                 <ChartWrapper height={250}>
                   <ResponsiveContainer width="100%" height={250}>
                     <BarChart data={conversationsByHour}>
@@ -425,10 +510,18 @@ export function AdvancedAnalytics() {
               fontSize: '18px', 
               fontWeight: '600', 
               color: '#111827',
-              marginBottom: '16px'
+              marginBottom: '8px'
             }}>
-              Distribución de mensajes
+              💬 Distribución de mensajes
             </h3>
+            <p className="advanced-analytics-text" style={{ 
+              fontSize: '13px', 
+              color: '#6b7280',
+              marginBottom: '16px',
+              lineHeight: '1.5'
+            }}>
+              Este gráfico circular muestra la proporción entre mensajes que recibís (entrantes) y mensajes que envías (salientes). <strong>Te ayuda a entender el balance de la conversación:</strong> si recibís muchos mensajes pero respondés pocos, o si hay un buen equilibrio entre lo que recibís y lo que respondés.
+            </p>
             <div style={{ 
               padding: '20px',
               backgroundColor: '#f9fafb',
@@ -437,7 +530,7 @@ export function AdvancedAnalytics() {
               minHeight: '250px',
               width: '100%'
             }}>
-              {messageDistributionData.length > 0 ? (
+              {isComponentReady && messageDistributionData.length > 0 ? (
                 <ChartWrapper height={250}>
                   <ResponsiveContainer width="100%" height={250}>
                     <PieChart>
@@ -488,10 +581,18 @@ export function AdvancedAnalytics() {
               fontSize: '18px', 
               fontWeight: '600', 
               color: '#111827',
-              marginBottom: '16px'
+              marginBottom: '8px'
             }}>
-              Uso de Bot (IA vs FSM)
+              🤖 Uso de Bot (IA vs FSM)
             </h3>
+            <p className="advanced-analytics-text" style={{ 
+              fontSize: '13px', 
+              color: '#6b7280',
+              marginBottom: '16px',
+              lineHeight: '1.5'
+            }}>
+              Este gráfico muestra qué tipo de respuesta está usando tu bot. <strong>IA (Inteligencia Artificial)</strong> significa que el bot está usando inteligencia artificial para responder de forma más natural y contextual. <strong>FSM (Máquina de Estados Finitos)</strong> significa que está usando respuestas predefinidas. <strong>Mientras más IA uses, más inteligente y personalizado será el bot.</strong>
+            </p>
             <div style={{ 
               padding: '20px',
               backgroundColor: '#f9fafb',
@@ -500,7 +601,7 @@ export function AdvancedAnalytics() {
               minHeight: '200px',
               width: '100%'
             }}>
-              {botUsageData.length > 0 ? (
+              {isComponentReady && botUsageData.length > 0 ? (
                 <ChartWrapper height={200}>
                   <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
@@ -543,10 +644,18 @@ export function AdvancedAnalytics() {
             fontSize: '18px', 
             fontWeight: '600', 
             color: '#111827',
-            marginBottom: '16px'
+            marginBottom: '8px'
           }}>
-            Conversaciones más activas
+            🔝 Conversaciones más activas
           </h3>
+          <p className="advanced-analytics-text" style={{ 
+            fontSize: '13px', 
+            color: '#6b7280',
+            marginBottom: '16px',
+            lineHeight: '1.5'
+          }}>
+            Esta lista muestra las 10 conversaciones con más mensajes. <strong>Te ayuda a identificar a tus clientes o leads más activos,</strong> aquellos con quienes tenés más intercambio. Podés ver si son clientes (ya trabajan con vos) o leads (personas interesadas). El número muestra cuántos mensajes tiene esa conversación.
+          </p>
           <div style={{ 
             padding: '20px',
             backgroundColor: '#f9fafb',
@@ -637,12 +746,14 @@ function MetricCard({
   icon: Icon, 
   label, 
   value, 
-  color 
+  color,
+  description
 }: { 
   icon: any
   label: string
   value: string
   color: string
+  description?: string
 }) {
   return (
     <div style={{
@@ -677,10 +788,21 @@ function MetricCard({
       <div style={{ 
         fontSize: '24px', 
         fontWeight: '700',
-        color: color
+        color: color,
+        marginBottom: description ? '8px' : '0'
       }}>
         {value}
       </div>
+      {description && (
+        <p style={{ 
+          fontSize: '11px', 
+          color: '#9ca3af',
+          margin: 0,
+          lineHeight: '1.4'
+        }}>
+          {description}
+        </p>
+      )}
     </div>
   )
 }

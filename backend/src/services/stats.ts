@@ -40,7 +40,7 @@ export interface AdvancedAnalytics {
     fsm: number;
   };
   
-  // Conversaciones más activas (top 5)
+  // Conversaciones más activas (top 10)
   topConversations: Array<{
     phone: string;
     name: string | null;
@@ -300,10 +300,10 @@ export async function getAdvancedAnalytics(): Promise<AdvancedAnalytics> {
     // Calcular tiempos promedio de respuesta
     const calculateAverage = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
     
-    // Top 5 conversaciones más activas
+    // Top 10 conversaciones más activas
     const topConversations = Array.from(conversationMessageCounts.values())
       .sort((a, b) => b.count - a.count)
-      .slice(0, 5)
+      .slice(0, 10)
       .map(c => ({
         phone: c.phone,
         name: c.name,
