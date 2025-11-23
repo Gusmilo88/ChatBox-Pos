@@ -4,6 +4,7 @@ import { fetchConversations } from '@/services/api'
 import { ConversationTable } from '@/components/ConversationTable'
 import { ConversationFilters } from '@/components/ConversationFilters'
 import { EmptyState } from '@/components/EmptyState'
+import { AiStatusCard } from '@/components/AiStatusCard'
 import { useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 
@@ -101,6 +102,11 @@ export function ConversationsPage() {
         <p className="subtitle">
           Gestioná las conversaciones de WhatsApp con clientes y leads
         </p>
+      </div>
+
+      {/* Tarjeta de estado de IA */}
+      <div className="mb-6">
+        <AiStatusCard />
       </div>
 
       <ConversationFilters

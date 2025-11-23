@@ -131,5 +131,7 @@ exports.collections = {
     messages: (conversationId, db) => (db || getDb()).collection('conversations').doc(conversationId).collection('messages'),
     outbox: (db) => (db || getDb()).collection('outbox'),
     admins: (db) => (db || getDb()).collection('admins'),
-    audit: (db) => (db || getDb()).collection('audit')
+    audit: (db) => (db || getDb()).collection('audit'),
+    aiUsage: (db) => (db || getDb()).collection('ai_usage'),
+    aiSettings: (db) => (db || getDb()).collection('ai_settings')
 };

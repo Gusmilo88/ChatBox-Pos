@@ -135,5 +135,7 @@ export const collections = {
   messages: (conversationId: string, db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('conversations').doc(conversationId).collection('messages'),
   outbox: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('outbox'),
   admins: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('admins'),
-  audit: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('audit')
+  audit: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('audit'),
+  aiUsage: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('ai_usage'),
+  aiSettings: (db?: FirebaseFirestore.Firestore) => (db || getDb()).collection('ai_settings')
 }

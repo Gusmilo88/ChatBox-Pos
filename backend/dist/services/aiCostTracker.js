@@ -1,0 +1,237 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.calculateCost = calculateCost;
+exports.recordAiUsage = recordAiUsage;
+exports.getMonthlyLimit = getMonthlyLimit;
+exports.setMonthlyLimit = setMonthlyLimit;
+exports.getCurrentMonthUsage = getCurrentMonthUsage;
+exports.canUseAi = canUseAi;
+exports.getMonthlyStats = getMonthlyStats;
+const firebase_1 = require("../firebase");
+const logger_1 = __importDefault(require("../libs/logger"));
+// Precios de OpenAI por modelo (por 1M tokens)
+const PRICING = {
+    'gpt-4o-mini': {
+        input: 0.150, // USD por 1M tokens
+        output: 0.600 // USD por 1M tokens
+    },
+    'gpt-4o': {
+        input: 2.50,
+        output: 10.00
+    },
+    'gpt-4': {
+        input: 30.00,
+        output: 60.00
+    },
+    'gpt-3.5-turbo': {
+        input: 0.50,
+        output: 1.50
+    }
+};
+// Límite por defecto: $50 USD/mes
+const DEFAULT_MONTHLY_LIMIT_USD = 50;
+/**
+ * Calcula el costo en USD basado en tokens usados
+ */
+function calculateCost(model, promptTokens, completionTokens) {
+    const pricing = PRICING[model];
+    if (!pricing) {
+        logger_1.default.warn(`Modelo ${model} no encontrado en pricing, usando gpt-4o-mini`);
+        const fallback = PRICING['gpt-4o-mini'];
+        return (promptTokens / 1000000) * fallback.input + (completionTokens / 1000000) * fallback.output;
+    }
+    const inputCost = (promptTokens / 1000000) * pricing.input;
+    const outputCost = (completionTokens / 1000000) * pricing.output;
+    return inputCost + outputCost;
+}
+/**
+ * Registra un uso de IA en Firebase
+ */
+async function recordAiUsage(record) {
+    try {
+        const db = (0, firebase_1.getDb)();
+        const cost = record.costUsd;
+        const month = new Date(record.timestamp).toISOString().slice(0, 7); // YYYY-MM
+        // Guardar registro individual
+        await firebase_1.collections.aiUsage(db).add({
+            timestamp: firebase_1.Timestamp.fromDate(record.timestamp),
+            tokensUsed: {
+                prompt: record.tokensUsed.prompt,
+                completion: record.tokensUsed.completion,
+                total: record.tokensUsed.total
+            },
+            costUsd: cost,
+            model: record.model,
+            role: record.role,
+            conversationId: record.conversationId || null,
+            month // Para queries por mes
+        });
+        logger_1.default.info('AI usage recorded', {
+            cost: cost.toFixed(6),
+            tokens: record.tokensUsed.total,
+            model: record.model
+        });
+    }
+    catch (error) {
+        const msg = error?.message ?? String(error);
+        logger_1.default.error('Error recording AI usage:', msg);
+        // No lanzar error, solo loguear (no queremos romper el flujo)
+    }
+}
+/**
+ * Obtiene el límite mensual configurado (por defecto $50 USD)
+ */
+async function getMonthlyLimit() {
+    try {
+        const db = (0, firebase_1.getDb)();
+        const settingsDoc = await firebase_1.collections.aiSettings(db).doc('limits').get();
+        if (settingsDoc.exists) {
+            const data = settingsDoc.data();
+            return data?.monthlyLimitUsd ?? DEFAULT_MONTHLY_LIMIT_USD;
+        }
+        // Si no existe, crear con valor por defecto
+        await firebase_1.collections.aiSettings(db).doc('limits').set({
+            monthlyLimitUsd: DEFAULT_MONTHLY_LIMIT_USD,
+            updatedAt: firebase_1.Timestamp.now()
+        });
+        return DEFAULT_MONTHLY_LIMIT_USD;
+    }
+    catch (error) {
+        const msg = error?.message ?? String(error);
+        logger_1.default.error('Error getting monthly limit:', msg);
+        return DEFAULT_MONTHLY_LIMIT_USD; // Fallback seguro
+    }
+}
+/**
+ * Actualiza el límite mensual
+ */
+async function setMonthlyLimit(limitUsd) {
+    try {
+        const db = (0, firebase_1.getDb)();
+        await firebase_1.collections.aiSettings(db).doc('limits').set({
+            monthlyLimitUsd: limitUsd,
+            updatedAt: firebase_1.Timestamp.now()
+        }, { merge: true });
+        logger_1.default.info('Monthly limit updated', { limitUsd });
+    }
+    catch (error) {
+        const msg = error?.message ?? String(error);
+        logger_1.default.error('Error setting monthly limit:', msg);
+        throw new Error(`No se pudo actualizar el límite: ${msg}`);
+    }
+}
+/**
+ * Obtiene el uso del mes actual
+ */
+async function getCurrentMonthUsage() {
+    try {
+        const db = (0, firebase_1.getDb)();
+        const now = new Date();
+        const currentMonth = now.toISOString().slice(0, 7); // YYYY-MM
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        // Obtener límite
+        const limitUsd = await getMonthlyLimit();
+        // Query de uso del mes
+        const snapshot = await firebase_1.collections.aiUsage(db)
+            .where('month', '==', currentMonth)
+            .where('timestamp', '>=', firebase_1.Timestamp.fromDate(startOfMonth))
+            .where('timestamp', '<=', firebase_1.Timestamp.fromDate(endOfMonth))
+            .get();
+        let totalCost = 0;
+        let totalTokens = 0;
+        let usageCount = 0;
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            totalCost += data.costUsd || 0;
+            totalTokens += data.tokensUsed?.total || 0;
+            usageCount++;
+        });
+        return {
+            month: currentMonth,
+            totalCostUsd: totalCost,
+            totalTokens,
+            usageCount,
+            limitUsd,
+            isLimitExceeded: totalCost >= limitUsd
+        };
+    }
+    catch (error) {
+        const msg = error?.message ?? String(error);
+        logger_1.default.error('Error getting current month usage:', msg);
+        const limitUsd = await getMonthlyLimit();
+        return {
+            month: new Date().toISOString().slice(0, 7),
+            totalCostUsd: 0,
+            totalTokens: 0,
+            usageCount: 0,
+            limitUsd,
+            isLimitExceeded: false
+        };
+    }
+}
+/**
+ * Verifica si se puede usar IA (no se superó el límite)
+ */
+async function canUseAi() {
+    try {
+        const usage = await getCurrentMonthUsage();
+        return !usage.isLimitExceeded;
+    }
+    catch (error) {
+        const msg = error?.message ?? String(error);
+        logger_1.default.error('Error checking if AI can be used:', msg);
+        return true; // En caso de error, permitir uso (fallback seguro)
+    }
+}
+/**
+ * Obtiene estadísticas de uso por mes
+ */
+async function getMonthlyStats(month) {
+    const targetMonth = month || new Date().toISOString().slice(0, 7);
+    try {
+        const db = (0, firebase_1.getDb)();
+        const [year, monthNum] = targetMonth.split('-').map(Number);
+        const startOfMonth = new Date(year, monthNum - 1, 1);
+        const endOfMonth = new Date(year, monthNum, 0, 23, 59, 59);
+        const limitUsd = await getMonthlyLimit();
+        const snapshot = await firebase_1.collections.aiUsage(db)
+            .where('month', '==', targetMonth)
+            .where('timestamp', '>=', firebase_1.Timestamp.fromDate(startOfMonth))
+            .where('timestamp', '<=', firebase_1.Timestamp.fromDate(endOfMonth))
+            .get();
+        let totalCost = 0;
+        let totalTokens = 0;
+        let usageCount = 0;
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            totalCost += data.costUsd || 0;
+            totalTokens += data.tokensUsed?.total || 0;
+            usageCount++;
+        });
+        return {
+            month: targetMonth,
+            totalCostUsd: totalCost,
+            totalTokens,
+            usageCount,
+            limitUsd,
+            isLimitExceeded: totalCost >= limitUsd
+        };
+    }
+    catch (error) {
+        const msg = error?.message ?? String(error);
+        logger_1.default.error('Error getting monthly stats:', msg);
+        const limitUsd = await getMonthlyLimit();
+        return {
+            month: targetMonth,
+            totalCostUsd: 0,
+            totalTokens: 0,
+            usageCount: 0,
+            limitUsd,
+            isLimitExceeded: false
+        };
+    }
+}

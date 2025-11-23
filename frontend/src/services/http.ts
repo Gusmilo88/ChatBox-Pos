@@ -62,4 +62,22 @@ export async function replyConversation(id: string, request: ReplyRequest): Prom
   })
 }
 
+// Estadísticas de IA
+export async function getAiStats(): Promise<any> {
+  const data = await apiRequest<{ ok: boolean; data: any }>('/api/ai/stats')
+  return data.data
+}
+
+export async function getAiLimit(): Promise<number> {
+  const data = await apiRequest<{ ok: boolean; data: { monthlyLimitUsd: number } }>('/api/ai/limit')
+  return data.data.monthlyLimitUsd
+}
+
+export async function setAiLimit(limitUsd: number): Promise<void> {
+  await apiRequest<{ ok: boolean }>('/api/ai/limit', {
+    method: 'POST',
+    body: JSON.stringify({ monthlyLimitUsd: limitUsd })
+  })
+}
+
 // Autenticación via cookies HttpOnly

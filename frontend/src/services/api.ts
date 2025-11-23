@@ -6,7 +6,10 @@ import type {
 import { 
   getConversations as httpGetConversations, 
   getConversationDetail as httpGetConversationDetail,
-  replyConversation as httpReplyConversation
+  replyConversation as httpReplyConversation,
+  getAiStats,
+  getAiLimit,
+  setAiLimit
 } from './http'
 
 // Adaptador que usa HTTP real
@@ -25,7 +28,12 @@ export const api = {
     }
   },
 
-  // Sin autenticación - acceso directo desde la app PWZ
+  // Estadísticas de IA
+  ai: {
+    getStats: getAiStats,
+    getLimit: getAiLimit,
+    setLimit: setAiLimit
+  }
 }
 
 // Re-exportar para compatibilidad

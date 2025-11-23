@@ -2,6 +2,12 @@ import OpenAI from 'openai';
 import config from '../config/env';
 import logger from '../libs/logger';
 import { truncateText } from '../utils/truncate';
+import { 
+  canUseAi, 
+  recordAiUsage, 
+  calculateCost,
+  type AiUsageRecord 
+} from './aiCostTracker';
 
 // Cliente OpenAI
 const client = new OpenAI({ 
@@ -15,6 +21,7 @@ export type AiContext = {
   nombre?: string;
   lastUserText?: string;
   history?: Array<{ from: 'user'|'bot'; text: string }>;
+  conversationId?: string;
 };
 
 export async function aiReply(ctx: AiContext): Promise<string> {
@@ -25,6 +32,18 @@ export async function aiReply(ctx: AiContext): Promise<string> {
       hasKey: false 
     });
     
+    if (ctx.role === 'no_cliente') {
+      return "Contame brevemente qué necesitás y te derivo con el equipo. También puedo tomarte tus datos para coordinar.";
+    } else {
+      return "Para temas de cuenta, saldo o comprobantes te derivo con el equipo. ¿Querés que te contacten?";
+    }
+  }
+
+  // Verificar si se puede usar IA (límite mensual)
+  const canUse = await canUseAi();
+  if (!canUse) {
+    logger.warn('IA deshabilitada: límite mensual superado');
+    // Fallback al bot predefinido
     if (ctx.role === 'no_cliente') {
       return "Contame brevemente qué necesitás y te derivo con el equipo. También puedo tomarte tus datos para coordinar.";
     } else {
@@ -92,12 +111,38 @@ Nunca prometas acciones automáticas externas; ofrecé derivar al equipo.`;
 
     const response = completion.choices[0]?.message?.content || '';
     
+    // Obtener tokens usados
+    const promptTokens = completion.usage?.prompt_tokens || 0;
+    const completionTokens = completion.usage?.completion_tokens || 0;
+    const totalTokens = completion.usage?.total_tokens || 0;
+    
+    // Calcular costo
+    const cost = calculateCost(config.openaiModel, promptTokens, completionTokens);
+    
+    // Registrar uso (async, no esperamos)
+    recordAiUsage({
+      timestamp: new Date(),
+      tokensUsed: {
+        prompt: promptTokens,
+        completion: completionTokens,
+        total: totalTokens
+      },
+      costUsd: cost,
+      model: config.openaiModel,
+      role: ctx.role,
+      conversationId: ctx.conversationId
+    }).catch(err => {
+      logger.error('Error registrando uso de IA:', err);
+    });
+    
     // Truncar respuesta a 600 caracteres máximo
     const truncatedResponse = truncateText(response, 600);
     
     logger.info('Respuesta de IA generada', {
       originalLength: response.length,
-      truncatedLength: truncatedResponse.length
+      truncatedLength: truncatedResponse.length,
+      tokens: totalTokens,
+      cost: cost.toFixed(6)
     });
 
     return truncatedResponse;
