@@ -178,7 +178,7 @@ export function AutoRepliesPage() {
       )}
 
       {rules.length === 0 ? (
-        <Card style={{ 
+        <Card className="card" style={{ 
           padding: '60px 40px', 
           textAlign: 'center',
           background: 'white',
@@ -199,7 +199,7 @@ export function AutoRepliesPage() {
           }}>
             <Hash size={40} color="white" />
           </div>
-          <h2 style={{ 
+          <h2 className="dark:text-white" style={{ 
             fontSize: '24px', 
             fontWeight: '600', 
             color: '#1e293b',
@@ -207,7 +207,7 @@ export function AutoRepliesPage() {
           }}>
             No hay reglas configuradas
           </h2>
-          <p style={{ 
+          <p className="dark:text-gray-300" style={{ 
             color: '#64748b', 
             fontSize: '16px', 
             marginBottom: '32px',
@@ -250,6 +250,7 @@ export function AutoRepliesPage() {
           {rules.map((rule) => (
             <Card
               key={rule.id}
+              className="card"
               style={{
                 padding: '24px',
                 border: `2px solid ${rule.enabled ? '#e5e7eb' : '#f3f4f6'}`,
@@ -343,26 +344,26 @@ export function AutoRepliesPage() {
                   </div>
 
                   {rule.type === 'keyword' && (
-                    <div style={{ 
+                    <div className="dark:bg-slate-800 dark:border-slate-700" style={{ 
                       marginBottom: '16px',
                       padding: '16px',
                       backgroundColor: '#f8fafc',
                       borderRadius: '12px',
                       border: '1px solid #e5e7eb'
                     }}>
-                      <p style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
-                        <strong style={{ color: '#475569' }}>Palabras clave:</strong> {rule.keywords?.join(', ') || 'N/A'}
+                      <p className="dark:text-gray-300" style={{ margin: '0 0 8px 0', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
+                        <strong className="dark:text-gray-200" style={{ color: '#475569' }}>Palabras clave:</strong> {rule.keywords?.join(', ') || 'N/A'}
                       </p>
-                      <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#64748b' }}>
-                        <strong style={{ color: '#475569' }}>Coincidencia:</strong> {rule.matchType === 'all' ? 'Todas las palabras' : 'Cualquier palabra'}
+                      <p className="dark:text-gray-300" style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#64748b' }}>
+                        <strong className="dark:text-gray-200" style={{ color: '#475569' }}>Coincidencia:</strong> {rule.matchType === 'all' ? 'Todas las palabras' : 'Cualquier palabra'}
                       </p>
-                      <div style={{
+                      <div className="dark:bg-slate-900 dark:border-slate-600" style={{
                         padding: '12px',
                         backgroundColor: 'white',
                         borderRadius: '8px',
                         border: '1px solid #e5e7eb'
                       }}>
-                        <p style={{ margin: 0, fontSize: '14px', color: '#475569', lineHeight: '1.6' }}>
+                        <p className="dark:text-gray-200" style={{ margin: 0, fontSize: '14px', color: '#475569', lineHeight: '1.6' }}>
                           "{rule.response?.substring(0, 150)}{rule.response && rule.response.length > 150 ? '...' : ''}"
                         </p>
                       </div>
@@ -370,7 +371,7 @@ export function AutoRepliesPage() {
                   )}
 
                   {rule.type === 'schedule' && rule.schedule && (
-                    <div style={{ 
+                    <div className="dark:bg-slate-800 dark:border-slate-700" style={{ 
                       marginBottom: '16px',
                       padding: '16px',
                       backgroundColor: '#f8fafc',
@@ -379,14 +380,14 @@ export function AutoRepliesPage() {
                     }}>
                       <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth < 768 ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                         <div>
-                          <p style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
-                            <strong style={{ color: '#475569' }}>Días:</strong>
+                          <p className="dark:text-gray-300" style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
+                            <strong className="dark:text-gray-200" style={{ color: '#475569' }}>Días:</strong>
                           </p>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                             {rule.schedule.days.map(d => {
                               const day = DAYS.find(day => day.value === d)
                               return day ? (
-                                <span key={d} style={{
+                                <span key={d} className="dark:bg-blue-900 dark:text-blue-200" style={{
                                   padding: '4px 10px',
                                   borderRadius: '6px',
                                   fontSize: '12px',
@@ -401,21 +402,21 @@ export function AutoRepliesPage() {
                           </div>
                         </div>
                         <div>
-                          <p style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
-                            <strong style={{ color: '#475569' }}>Horario:</strong>
+                          <p className="dark:text-gray-300" style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
+                            <strong className="dark:text-gray-200" style={{ color: '#475569' }}>Horario:</strong>
                           </p>
-                          <p style={{ margin: 0, fontSize: '14px', color: '#475569', fontWeight: '600' }}>
+                          <p className="dark:text-gray-200" style={{ margin: 0, fontSize: '14px', color: '#475569', fontWeight: '600' }}>
                             {rule.schedule.startTime} - {rule.schedule.endTime}
                           </p>
                         </div>
                       </div>
-                      <div style={{
+                      <div className="dark:bg-slate-900 dark:border-slate-600" style={{
                         padding: '12px',
                         backgroundColor: 'white',
                         borderRadius: '8px',
                         border: '1px solid #e5e7eb'
                       }}>
-                        <p style={{ margin: 0, fontSize: '14px', color: '#475569', lineHeight: '1.6' }}>
+                        <p className="dark:text-gray-200" style={{ margin: 0, fontSize: '14px', color: '#475569', lineHeight: '1.6' }}>
                           "{rule.scheduleResponse?.substring(0, 150)}{rule.scheduleResponse && rule.scheduleResponse.length > 150 ? '...' : ''}"
                         </p>
                       </div>

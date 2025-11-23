@@ -162,7 +162,7 @@ export function AutoReplyRuleForm({ rule, onClose, onSuccess }: AutoReplyRuleFor
       padding: '20px',
       animation: 'fadeIn 0.2s ease'
     }}>
-      <div style={{
+      <div className="dark:bg-slate-800" style={{
         backgroundColor: 'white',
         borderRadius: '20px',
         width: '100%',
@@ -174,7 +174,7 @@ export function AutoReplyRuleForm({ rule, onClose, onSuccess }: AutoReplyRuleFor
         flexDirection: 'column',
         animation: 'slideUp 0.3s ease'
       }}>
-        <div style={{
+        <div className="dark:border-slate-700" style={{
           padding: '24px 28px',
           borderBottom: '1px solid #e5e7eb',
           display: 'flex',
@@ -231,6 +231,7 @@ export function AutoReplyRuleForm({ rule, onClose, onSuccess }: AutoReplyRuleFor
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, type: 'keyword' })}
+                className={`dark:bg-slate-700 dark:text-white dark:border-slate-600 ${formData.type === 'keyword' ? 'dark:bg-blue-900 dark:border-blue-700' : ''}`}
                 style={{
                   flex: 1,
                   padding: '12px',
@@ -239,7 +240,9 @@ export function AutoReplyRuleForm({ rule, onClose, onSuccess }: AutoReplyRuleFor
                   backgroundColor: formData.type === 'keyword' ? '#eff6ff' : 'white',
                   cursor: 'pointer',
                   fontSize: '14px',
-                  fontWeight: '500'
+                  fontWeight: '500',
+                  color: formData.type === 'keyword' ? '#1e40af' : '#374151',
+                  transition: 'all 0.2s ease'
                 }}
               >
                 Palabras Clave
@@ -247,6 +250,7 @@ export function AutoReplyRuleForm({ rule, onClose, onSuccess }: AutoReplyRuleFor
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, type: 'schedule' })}
+                className={`dark:bg-slate-700 dark:text-white dark:border-slate-600 ${formData.type === 'schedule' ? 'dark:bg-blue-900 dark:border-blue-700' : ''}`}
                 style={{
                   flex: 1,
                   padding: '12px',
@@ -255,7 +259,9 @@ export function AutoReplyRuleForm({ rule, onClose, onSuccess }: AutoReplyRuleFor
                   backgroundColor: formData.type === 'schedule' ? '#eff6ff' : 'white',
                   cursor: 'pointer',
                   fontSize: '14px',
-                  fontWeight: '500'
+                  fontWeight: '500',
+                  color: formData.type === 'schedule' ? '#1e40af' : '#374151',
+                  transition: 'all 0.2s ease'
                 }}
               >
                 Horario
@@ -493,7 +499,7 @@ export function AutoReplyRuleForm({ rule, onClose, onSuccess }: AutoReplyRuleFor
             </div>
           </div>
 
-          <div style={{ 
+          <div className="dark:border-slate-700" style={{ 
             display: 'flex', 
             gap: '12px', 
             justifyContent: 'flex-end',
@@ -504,6 +510,7 @@ export function AutoReplyRuleForm({ rule, onClose, onSuccess }: AutoReplyRuleFor
             <Button
               type="button"
               onClick={onClose}
+              className="dark:bg-slate-700 dark:text-gray-200 dark:hover:bg-slate-600"
               style={{
                 backgroundColor: '#f3f4f6',
                 color: '#374151',

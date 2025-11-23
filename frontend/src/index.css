@@ -383,6 +383,16 @@ h1 {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
 }
 
+.dark .card h2,
+.dark .card h3,
+.dark .card p {
+  color: #f1f5f9;
+}
+
+.dark .card p {
+  color: #cbd5e1;
+}
+
 .card-header {
   display: flex;
   align-items: center;
