@@ -1,8 +1,8 @@
 /**
  * Formatea un teléfono E.164 a formato legible
  */
-export function formatPhone(phone: string): string {
-  if (!phone) return phone
+export function formatPhone(phone: string | null | undefined): string {
+  if (!phone || typeof phone !== 'string') return phone || 'Sin teléfono'
   
   // Remover el + si existe
   const clean = phone.replace('+', '')
