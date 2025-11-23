@@ -66,7 +66,9 @@ function requireRole(roles) {
 }
 // Crear cookie de sesión
 function createSessionCookie(token) {
-    const maxAge = env_1.config.sessionTTLMinutes * 60; // convertir a segundos
+    // Sesión persistente: sin Max-Age, la cookie expira solo cuando se cierra el navegador
+    // O usar un Max-Age muy grande (10 años) para que nunca expire automáticamente
+    const maxAge = 10 * 365 * 24 * 60 * 60; // 10 años en segundos (prácticamente infinito)
     // En desarrollo local, no usar Secure ni SameSite=Strict
     const isProduction = process.env.NODE_ENV === 'production';
     const secureFlag = isProduction ? 'Secure' : '';

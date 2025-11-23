@@ -9,14 +9,16 @@ import { StatsCard } from '@/components/StatsCard'
 import { Tabs } from '@/components/Tabs'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { useAuth } from '@/hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { MessageSquare, BarChart3 } from 'lucide-react'
+import { MessageSquare, BarChart3, LogOut } from 'lucide-react'
 
 export function ConversationsPage() {
   const navigate = useNavigate()
   const { page, setPage, ...filters } = useFiltersStore()
   const [activeTab, setActiveTab] = useState<'conversations' | 'stats'>('conversations')
+  const { logout } = useAuth()
   
   const {
     data: conversationsData,
@@ -164,8 +166,42 @@ export function ConversationsPage() {
             Gestioná las conversaciones de WhatsApp con clientes y leads
           </p>
         </div>
-        <div style={{ marginLeft: '24px', flexShrink: 0 }}>
+        <div style={{ marginLeft: '24px', flexShrink: 0, display: 'flex', gap: '12px', alignItems: 'center' }}>
           <ThemeToggle />
+          <button
+            onClick={logout}
+            className="logout-button"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              padding: '10px 16px',
+              borderRadius: '12px',
+              border: 'none',
+              background: '#ef4444',
+              color: 'white',
+              cursor: 'pointer',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              fontWeight: '600',
+              fontSize: '14px',
+              boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#dc2626'
+              e.currentTarget.style.transform = 'scale(1.05)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.4)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#ef4444'
+              e.currentTarget.style.transform = 'scale(1)'
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(239, 68, 68, 0.3)'
+            }}
+            title="Cerrar sesión"
+          >
+            <LogOut size={18} />
+            Salir
+          </button>
         </div>
       </div>
 

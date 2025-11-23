@@ -35,6 +35,18 @@ body {
   color: #cbd5e1 !important;
 }
 
+/* Botón de logout - modo oscuro */
+.dark .logout-button {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #fca5a5 !important;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2) !important;
+}
+
+.dark .logout-button:hover {
+  background: rgba(239, 68, 68, 0.25) !important;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4) !important;
+}
+
 /* Estilos modo oscuro para componentes */
 .dark .card-header {
   border-bottom-color: #334155;
@@ -88,7 +100,7 @@ body:has(.whatsapp-chat-container) {
 }
 
 .dark body:has(.whatsapp-chat-container) {
-  background: #1e293b !important;
+  background: #0f172a !important;
 }
 
 /* ===== LOGIN PAGE STYLES ===== */
@@ -728,6 +740,11 @@ h1 {
   bottom: 0;
   overflow: hidden;
   z-index: 1000;
+  transition: background 0.3s ease;
+}
+
+.dark .whatsapp-chat-container {
+  background: #0f172a !important;
 }
 
 /* Fondo con patrón sutil como WhatsApp */
@@ -746,6 +763,14 @@ h1 {
   opacity: 0.3;
   z-index: 0;
   pointer-events: none;
+  transition: background 0.3s ease, background-image 0.3s ease;
+}
+
+.dark .whatsapp-chat-container::before {
+  background: #0f172a;
+  background-image: 
+    url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  opacity: 0.2;
 }
 
 /* Header verde oscuro como WhatsApp */
@@ -759,6 +784,12 @@ h1 {
   z-index: 1;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  transition: background 0.3s ease;
+}
+
+.dark .whatsapp-header {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .whatsapp-back-btn {
@@ -904,6 +935,12 @@ h1 {
   color: #303030;
   border-bottom-left-radius: 0;
   margin-right: auto;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.dark .whatsapp-message-incoming .whatsapp-message-bubble {
+  background: #1e293b;
+  color: #e2e8f0;
 }
 
 .whatsapp-message-incoming .whatsapp-message-bubble::before {
@@ -917,6 +954,11 @@ h1 {
   border-bottom-color: white;
   border-left-width: 8px;
   border-bottom-width: 13px;
+  transition: border-bottom-color 0.3s ease;
+}
+
+.dark .whatsapp-message-incoming .whatsapp-message-bubble::before {
+  border-bottom-color: #1e293b;
 }
 
 /* Mensaje saliente (derecha) */
@@ -925,6 +967,12 @@ h1 {
   color: #303030;
   border-bottom-right-radius: 0;
   margin-left: auto;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.dark .whatsapp-message-outgoing .whatsapp-message-bubble {
+  background: #1e40af;
+  color: #e2e8f0;
 }
 
 .whatsapp-message-outgoing .whatsapp-message-bubble::before {
@@ -938,6 +986,11 @@ h1 {
   border-bottom-color: #dcf8c6;
   border-right-width: 8px;
   border-bottom-width: 13px;
+  transition: border-bottom-color 0.3s ease;
+}
+
+.dark .whatsapp-message-outgoing .whatsapp-message-bubble::before {
+  border-bottom-color: #1e40af;
 }
 
 /* Texto del mensaje */
@@ -990,6 +1043,12 @@ h1 {
   border-top: 1px solid #e0e0e0;
   position: relative;
   z-index: 1;
+  transition: background 0.3s ease, border-color 0.3s ease;
+}
+
+.dark .whatsapp-input-container {
+  background: #1e293b;
+  border-top-color: #334155;
 }
 
 .whatsapp-input-wrapper {
@@ -1002,6 +1061,11 @@ h1 {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.dark .whatsapp-input-wrapper {
+  background: #0f172a;
+  border-color: #334155;
 }
 
 .whatsapp-input-wrapper:focus-within {
@@ -1059,6 +1123,15 @@ h1 {
   font-size: 15px;
   padding: 9px 12px;
   line-height: 1.4;
+  transition: color 0.3s ease;
+}
+
+.dark .whatsapp-input-field {
+  color: #e2e8f0;
+}
+
+.dark .whatsapp-input-field::placeholder {
+  color: #64748b;
 }
 
 .whatsapp-input-field::placeholder {
@@ -1109,6 +1182,11 @@ h1 {
   text-align: center;
   margin-top: 6px;
   padding: 0 16px;
+  transition: color 0.3s ease;
+}
+
+.dark .whatsapp-input-hint {
+  color: #94a3b8;
 }
 
 /* Badge de IA */

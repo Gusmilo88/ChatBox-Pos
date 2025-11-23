@@ -60,6 +60,28 @@ export function LoginPage() {
   return (
     <div className="login-page-container">
       <div className="login-card">
+        {/* Studio Title */}
+        <div style={{
+          textAlign: 'center',
+          marginBottom: '32px',
+          paddingBottom: '24px',
+          borderBottom: '1px solid #e5e7eb'
+        }}>
+          <h2 style={{
+            fontSize: '28px',
+            fontWeight: '700',
+            background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+            margin: 0,
+            letterSpacing: '-0.5px',
+            lineHeight: '1.2'
+          }}>
+            Estudio Contable Pos & Asociados
+          </h2>
+        </div>
+
         {/* Header */}
         <div className="login-header">
           <h1 className="login-title">Iniciar Sesión</h1>
