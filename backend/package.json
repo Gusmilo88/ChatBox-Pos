@@ -15,6 +15,7 @@
     "admin:add": "tsx src/scripts/admin-add.ts",
     "admin:migrate": "tsx src/scripts/admin-migrate.ts",
     "worker:outbox": "tsx src/worker/outbox.ts",
+    "test:ai-costs": "tsx src/scripts/test-ai-costs.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

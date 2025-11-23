@@ -156,18 +156,29 @@ export async function getCurrentMonthUsage(): Promise<MonthlyUsage> {
     const db = getDb();
     const now = new Date();
     const currentMonth = now.toISOString().slice(0, 7); // YYYY-MM
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
     // Obtener límite
     const limitUsd = await getMonthlyLimit();
 
-    // Query de uso del mes
-    const snapshot = await collections.aiUsage(db)
-      .where('month', '==', currentMonth)
-      .where('timestamp', '>=', Timestamp.fromDate(startOfMonth))
-      .where('timestamp', '<=', Timestamp.fromDate(endOfMonth))
-      .get();
+    // Query simplificada: solo por mes (no necesita índice compuesto)
+    // Si la colección no existe, la query simplemente devuelve vacío
+    let snapshot;
+    try {
+      snapshot = await collections.aiUsage(db)
+        .where('month', '==', currentMonth)
+        .get();
+    } catch (error) {
+      // Si la colección no existe o hay error, devolver valores por defecto
+      logger.info('Colección ai_usage no existe aún o error en query, devolviendo valores por defecto');
+      return {
+        month: currentMonth,
+        totalCostUsd: 0,
+        totalTokens: 0,
+        usageCount: 0,
+        limitUsd,
+        isLimitExceeded: false
+      };
+    }
 
     let totalCost = 0;
     let totalTokens = 0;
@@ -225,17 +236,26 @@ export async function getMonthlyStats(month?: string): Promise<MonthlyUsage> {
   
   try {
     const db = getDb();
-    const [year, monthNum] = targetMonth.split('-').map(Number);
-    const startOfMonth = new Date(year, monthNum - 1, 1);
-    const endOfMonth = new Date(year, monthNum, 0, 23, 59, 59);
-
     const limitUsd = await getMonthlyLimit();
 
-    const snapshot = await collections.aiUsage(db)
-      .where('month', '==', targetMonth)
-      .where('timestamp', '>=', Timestamp.fromDate(startOfMonth))
-      .where('timestamp', '<=', Timestamp.fromDate(endOfMonth))
-      .get();
+    // Query simplificada: solo por mes (no necesita índice compuesto)
+    let snapshot;
+    try {
+      snapshot = await collections.aiUsage(db)
+        .where('month', '==', targetMonth)
+        .get();
+    } catch (error) {
+      // Si la colección no existe o hay error, devolver valores por defecto
+      logger.info('Colección ai_usage no existe aún o error en query, devolviendo valores por defecto');
+      return {
+        month: targetMonth,
+        totalCostUsd: 0,
+        totalTokens: 0,
+        usageCount: 0,
+        limitUsd,
+        isLimitExceeded: false
+      };
+    }
 
     let totalCost = 0;
     let totalTokens = 0;

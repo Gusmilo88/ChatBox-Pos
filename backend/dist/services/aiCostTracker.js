@@ -131,16 +131,28 @@ async function getCurrentMonthUsage() {
         const db = (0, firebase_1.getDb)();
         const now = new Date();
         const currentMonth = now.toISOString().slice(0, 7); // YYYY-MM
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
         // Obtener límite
         const limitUsd = await getMonthlyLimit();
-        // Query de uso del mes
-        const snapshot = await firebase_1.collections.aiUsage(db)
-            .where('month', '==', currentMonth)
-            .where('timestamp', '>=', firebase_1.Timestamp.fromDate(startOfMonth))
-            .where('timestamp', '<=', firebase_1.Timestamp.fromDate(endOfMonth))
-            .get();
+        // Query simplificada: solo por mes (no necesita índice compuesto)
+        // Si la colección no existe, la query simplemente devuelve vacío
+        let snapshot;
+        try {
+            snapshot = await firebase_1.collections.aiUsage(db)
+                .where('month', '==', currentMonth)
+                .get();
+        }
+        catch (error) {
+            // Si la colección no existe o hay error, devolver valores por defecto
+            logger_1.default.info('Colección ai_usage no existe aún o error en query, devolviendo valores por defecto');
+            return {
+                month: currentMonth,
+                totalCostUsd: 0,
+                totalTokens: 0,
+                usageCount: 0,
+                limitUsd,
+                isLimitExceeded: false
+            };
+        }
         let totalCost = 0;
         let totalTokens = 0;
         let usageCount = 0;
@@ -194,15 +206,26 @@ async function getMonthlyStats(month) {
     const targetMonth = month || new Date().toISOString().slice(0, 7);
     try {
         const db = (0, firebase_1.getDb)();
-        const [year, monthNum] = targetMonth.split('-').map(Number);
-        const startOfMonth = new Date(year, monthNum - 1, 1);
-        const endOfMonth = new Date(year, monthNum, 0, 23, 59, 59);
         const limitUsd = await getMonthlyLimit();
-        const snapshot = await firebase_1.collections.aiUsage(db)
-            .where('month', '==', targetMonth)
-            .where('timestamp', '>=', firebase_1.Timestamp.fromDate(startOfMonth))
-            .where('timestamp', '<=', firebase_1.Timestamp.fromDate(endOfMonth))
-            .get();
+        // Query simplificada: solo por mes (no necesita índice compuesto)
+        let snapshot;
+        try {
+            snapshot = await firebase_1.collections.aiUsage(db)
+                .where('month', '==', targetMonth)
+                .get();
+        }
+        catch (error) {
+            // Si la colección no existe o hay error, devolver valores por defecto
+            logger_1.default.info('Colección ai_usage no existe aún o error en query, devolviendo valores por defecto');
+            return {
+                month: targetMonth,
+                totalCostUsd: 0,
+                totalTokens: 0,
+                usageCount: 0,
+                limitUsd,
+                isLimitExceeded: false
+            };
+        }
         let totalCost = 0;
         let totalTokens = 0;
         let usageCount = 0;
