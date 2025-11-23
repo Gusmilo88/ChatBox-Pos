@@ -157,7 +157,7 @@ export function ConversationsPage() {
   return (
     <div className="container">
       <div>
-        <h1>Dashboard</h1>
+        <h1>Dashboard de Estudio Pos & Asociados</h1>
         <p className="subtitle">
           Gestioná las conversaciones de WhatsApp con clientes y leads
         </p>
