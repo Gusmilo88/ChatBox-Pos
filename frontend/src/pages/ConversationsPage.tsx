@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/EmptyState'
 import { AiStatusCard } from '@/components/AiStatusCard'
 import { StatsCard } from '@/components/StatsCard'
 import { Tabs } from '@/components/Tabs'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { MessageSquare, BarChart3 } from 'lucide-react'
@@ -182,11 +183,7 @@ export function ConversationsPage() {
             />
 
             {isLoading && !conversationsData ? (
-              <EmptyState
-                type="loading"
-                title="Cargando conversaciones..."
-                description="Obteniendo la lista de conversaciones..."
-              />
+              <LoadingSpinner size="lg" text="Cargando conversaciones..." />
             ) : !hasResults ? (
               <EmptyState
                 type="no-results"

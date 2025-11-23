@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/table'
 import { formatPhone, formatDateTime } from '@/utils/format'
 import { maskPII } from '@/utils/mask'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 import type { ConversationListItem } from '@/types/conversations'
 
 interface ConversationTableProps {
@@ -49,42 +50,205 @@ export function ConversationTable({
     }
   }
 
+  if (isLoading && conversations.length === 0) {
+    return (
+      <div style={{ padding: '60px 20px' }}>
+        <LoadingSpinner size="lg" text="Cargando conversaciones..." />
+      </div>
+    )
+  }
+
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <div className="border rounded-lg">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Teléfono</TableHead>
-                <TableHead>Nombre</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Último mensaje</TableHead>
-                <TableHead>No leídos</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell>
-                    <div className="h-4 bg-muted animate-pulse rounded" />
-                  </TableCell>
-                  <TableCell>
-                    <div className="h-4 bg-muted animate-pulse rounded" />
-                  </TableCell>
-                  <TableCell>
-                    <div className="h-4 bg-muted animate-pulse rounded" />
-                  </TableCell>
-                  <TableCell>
-                    <div className="h-4 bg-muted animate-pulse rounded" />
-                  </TableCell>
-                  <TableCell>
-                    <div className="h-4 bg-muted animate-pulse rounded" />
-                  </TableCell>
-                </TableRow>
+      <div>
+        {/* Mostrar tabla con datos mientras carga más */}
+        <div className="table-container conversation-table-scroll" style={{ 
+          overflowX: 'auto', 
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'thin',
+          scrollbarColor: '#cbd5e1 #f1f5f9'
+        }}>
+          <table style={{ 
+            width: '100%', 
+            borderCollapse: 'separate', 
+            borderSpacing: '0 8px',
+            marginTop: '-8px'
+          }}>
+            <thead>
+              <tr>
+                <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#475569', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <Phone size={16} style={{ marginRight: '8px', color: '#64748b', verticalAlign: 'middle' }} />
+                  Teléfono
+                </th>
+                <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#475569', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <User size={16} style={{ marginRight: '8px', color: '#64748b', verticalAlign: 'middle' }} />
+                  Nombre
+                </th>
+                <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#475569', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Estado</th>
+                <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#475569', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <Clock size={16} style={{ marginRight: '8px', color: '#64748b', verticalAlign: 'middle' }} />
+                  Último mensaje
+                </th>
+                <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#475569', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <MessageSquare size={16} style={{ marginRight: '8px', color: '#64748b', verticalAlign: 'middle' }} />
+                  No leídos
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {conversations.map((conversation) => (
+                <tr
+                  key={conversation.id}
+                  onClick={() => handleRowClick(conversation.id)}
+                  style={{
+                    backgroundColor: conversation.unreadCount > 0 
+                      ? (conversation.needsReply ? '#fef2f2' : '#f0f9ff')
+                      : 'white',
+                    borderLeft: conversation.needsReply ? '4px solid #dc2626' : conversation.unreadCount > 0 ? '4px solid #3b82f6' : '4px solid transparent',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    position: 'relative',
+                    borderRadius: '8px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                    marginBottom: '8px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = conversation.needsReply ? '#fee2e2' : '#e0f2fe'
+                    e.currentTarget.style.transform = 'translateX(2px)'
+                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = conversation.unreadCount > 0 
+                      ? (conversation.needsReply ? '#fef2f2' : '#f0f9ff')
+                      : 'white'
+                    e.currentTarget.style.transform = 'translateX(0)'
+                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)'
+                  }}
+                >
+                  <td style={{ padding: '16px', fontWeight: '500' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        color: conversation.unreadCount > 0 ? '#111827' : '#6b7280'
+                      }}>
+                        {conversation.unreadCount > 0 ? (
+                          <Circle size={8} fill="#3b82f6" color="#3b82f6" />
+                        ) : (
+                          <CheckCircle2 size={8} color="#10b981" />
+                        )}
+                        <span style={{ fontWeight: conversation.unreadCount > 0 ? '600' : '500' }}>
+                          {formatPhone(conversation.phone)}
+                        </span>
+                      </div>
+                      {conversation.needsReply && (
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          backgroundColor: '#fee2e2',
+                          color: '#dc2626',
+                          border: '1px solid #fca5a5'
+                        }}>
+                          Urgente
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td style={{ padding: '16px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {conversation.name ? (
+                        <span style={{ 
+                          fontWeight: '600', 
+                          color: '#111827',
+                          fontSize: '14px'
+                        }}>
+                          {conversation.name}
+                        </span>
+                      ) : (
+                        <span style={{ 
+                          color: '#9ca3af', 
+                          fontStyle: 'italic',
+                          fontSize: '14px'
+                        }}>
+                          Sin nombre
+                        </span>
+                      )}
+                      {conversation.lastMessage && (
+                        <span style={{
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '200px'
+                        }}>
+                          {conversation.lastMessage}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td style={{ padding: '16px' }}>
+                    <span style={{
+                      padding: '4px 10px',
+                      borderRadius: '16px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      backgroundColor: conversation.isClient ? '#d1fae5' : '#fffbeb',
+                      color: conversation.isClient ? '#065f46' : '#b45309',
+                      border: `1px solid ${conversation.isClient ? '#a7f3d0' : '#fed7aa'}`
+                    }}>
+                      {conversation.isClient ? "Cliente" : "Lead"}
+                    </span>
+                  </td>
+                  <td style={{ padding: '16px', fontSize: '13px', color: '#6b7280' }}>
+                    {formatDateTime(conversation.lastMessageAt)}
+                  </td>
+                  <td style={{ padding: '16px', textAlign: 'center' }}>
+                    {conversation.unreadCount > 0 ? (
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        backgroundColor: '#3b82f6',
+                        color: 'white',
+                        fontSize: '12px',
+                        fontWeight: '700'
+                      }}>
+                        {conversation.unreadCount}
+                      </span>
+                    ) : (
+                      <CheckCircle2 size={18} color="#10b981" style={{ verticalAlign: 'middle' }} />
+                    )}
+                  </td>
+                </tr>
               ))}
-            </TableBody>
-          </Table>
+            </tbody>
+          </table>
+        </div>
+        
+        {/* Spinner al final mientras carga más */}
+        <div style={{ padding: '20px', textAlign: 'center' }}>
+          <LoadingSpinner size="sm" text="Cargando más conversaciones..." />
+        </div>
+      </div>
+    )
+  }
+
+  if (conversations.length === 0) {
+    return (
+      <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+        <MessageSquare size={48} style={{ marginBottom: '16px', opacity: 0.3, color: '#9ca3af' }} />
+        <div style={{ fontSize: '16px', fontWeight: '600', color: '#6b7280', marginBottom: '8px' }}>
+          No hay conversaciones
+        </div>
+        <div style={{ fontSize: '14px', color: '#9ca3af' }}>
+          Aún no hay conversaciones para mostrar
         </div>
       </div>
     )
@@ -93,25 +257,56 @@ export function ConversationTable({
   return (
     <div>
       {/* Tabla */}
-      <div className="table-container conversation-table-scroll">
-        <table className="table">
+      <div className="table-container conversation-table-scroll" style={{ 
+        overflowX: 'auto', 
+        WebkitOverflowScrolling: 'touch',
+        scrollbarWidth: 'thin',
+        scrollbarColor: '#cbd5e1 #f1f5f9'
+      }}>
+        <style>{`
+          .conversation-table-scroll::-webkit-scrollbar {
+            height: 8px;
+          }
+          .conversation-table-scroll::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 10px;
+          }
+          .conversation-table-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+          }
+          .conversation-table-scroll::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+          }
+          @media (max-width: 767px) {
+            .conversation-table-scroll table {
+              min-width: 600px;
+            }
+          }
+        `}</style>
+        <table style={{ 
+          width: '100%', 
+          borderCollapse: 'separate', 
+          borderSpacing: '0 8px',
+          marginTop: '-8px'
+        }}>
           <thead>
             <tr>
-              <th>
-                <Phone className="icon" />
+              <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#475569', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <Phone size={16} style={{ marginRight: '8px', color: '#64748b', verticalAlign: 'middle' }} />
                 Teléfono
               </th>
-              <th>
-                <User className="icon" />
+              <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#475569', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <User size={16} style={{ marginRight: '8px', color: '#64748b', verticalAlign: 'middle' }} />
                 Nombre
               </th>
-              <th>Estado</th>
-              <th>
-                <Clock className="icon" />
+              <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#475569', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Estado</th>
+              <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#475569', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <Clock size={16} style={{ marginRight: '8px', color: '#64748b', verticalAlign: 'middle' }} />
                 Último mensaje
               </th>
-              <th>
-                <MessageSquare className="icon" />
+              <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#475569', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <MessageSquare size={16} style={{ marginRight: '8px', color: '#64748b', verticalAlign: 'middle' }} />
                 No leídos
               </th>
             </tr>
@@ -120,20 +315,7 @@ export function ConversationTable({
             {conversations.map((conversation) => (
               <tr
                 key={conversation.id}
-                className={conversation.needsReply ? 'urgent' : ''}
                 onClick={() => handleRowClick(conversation.id)}
-                onMouseEnter={(e) => {
-                  setHoveredRow(conversation.id)
-                  e.currentTarget.style.backgroundColor = conversation.needsReply ? '#fee2e2' : '#e0f2fe'
-                  e.currentTarget.style.transform = 'translateX(2px)'
-                }}
-                onMouseLeave={(e) => {
-                  setHoveredRow(null)
-                  e.currentTarget.style.backgroundColor = conversation.unreadCount > 0 
-                    ? (conversation.needsReply ? '#fef2f2' : '#f0f9ff')
-                    : 'white'
-                  e.currentTarget.style.transform = 'translateX(0)'
-                }}
                 style={{
                   backgroundColor: conversation.unreadCount > 0 
                     ? (conversation.needsReply ? '#fef2f2' : '#f0f9ff')
@@ -141,7 +323,22 @@ export function ConversationTable({
                   borderLeft: conversation.needsReply ? '4px solid #dc2626' : conversation.unreadCount > 0 ? '4px solid #3b82f6' : '4px solid transparent',
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
-                  position: 'relative'
+                  position: 'relative',
+                  borderRadius: '8px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  marginBottom: '8px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = conversation.needsReply ? '#fee2e2' : '#e0f2fe'
+                  e.currentTarget.style.transform = 'translateX(2px)'
+                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = conversation.unreadCount > 0 
+                    ? (conversation.needsReply ? '#fef2f2' : '#f0f9ff')
+                    : 'white'
+                  e.currentTarget.style.transform = 'translateX(0)'
+                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)'
                 }}
               >
                 <td style={{ padding: '16px', fontWeight: '500' }}>
@@ -211,30 +408,19 @@ export function ConversationTable({
                 </td>
                 <td style={{ padding: '16px' }}>
                   <span style={{
-                    padding: '4px 12px',
-                    borderRadius: '12px',
+                    padding: '4px 10px',
+                    borderRadius: '16px',
                     fontSize: '12px',
                     fontWeight: '600',
-                    backgroundColor: conversation.isClient ? '#d1fae5' : '#fef3c7',
-                    color: conversation.isClient ? '#059669' : '#d97706',
-                    border: `1px solid ${conversation.isClient ? '#6ee7b7' : '#fcd34d'}`
+                    backgroundColor: conversation.isClient ? '#d1fae5' : '#fffbeb',
+                    color: conversation.isClient ? '#065f46' : '#b45309',
+                    border: `1px solid ${conversation.isClient ? '#a7f3d0' : '#fed7aa'}`
                   }}>
                     {conversation.isClient ? "Cliente" : "Lead"}
                   </span>
                 </td>
                 <td style={{ padding: '16px', fontSize: '13px', color: '#6b7280' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <span>{formatDateTime(conversation.lastMessageAt)}</span>
-                    {conversation.unreadCount > 0 && (
-                      <span style={{
-                        fontSize: '11px',
-                        color: '#3b82f6',
-                        fontWeight: '600'
-                      }}>
-                        {conversation.unreadCount} nuevo{conversation.unreadCount > 1 ? 's' : ''}
-                      </span>
-                    )}
-                  </div>
+                  {formatDateTime(conversation.lastMessageAt)}
                 </td>
                 <td style={{ padding: '16px', textAlign: 'center' }}>
                   {conversation.unreadCount > 0 ? (
@@ -242,20 +428,18 @@ export function ConversationTable({
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      minWidth: '24px',
+                      width: '24px',
                       height: '24px',
-                      padding: '0 8px',
-                      borderRadius: '12px',
-                      fontSize: '12px',
-                      fontWeight: '700',
+                      borderRadius: '50%',
                       backgroundColor: '#3b82f6',
                       color: 'white',
-                      boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
+                      fontSize: '12px',
+                      fontWeight: '700'
                     }}>
                       {conversation.unreadCount}
                     </span>
                   ) : (
-                    <CheckCircle2 size={16} color="#10b981" style={{ opacity: 0.5 }} />
+                    <CheckCircle2 size={18} color="#10b981" style={{ verticalAlign: 'middle' }} />
                   )}
                 </td>
               </tr>
@@ -266,21 +450,43 @@ export function ConversationTable({
 
       {/* Paginación */}
       {totalPages > 1 && (
-        <div className="pagination">
-          <div className="pagination-info-white">
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginTop: '24px', 
+          padding: '16px 0',
+          flexWrap: 'wrap',
+          gap: '16px'
+        }}>
+          <div style={{ fontSize: '14px', color: 'white' }}>
             Mostrando {startItem} a {endItem} de {total} conversaciones
           </div>
-          <div className="pagination-controls">
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
-              className="pagination-btn"
               onClick={() => handlePageChange(page - 1)}
               disabled={page === 1}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+                backgroundColor: 'white',
+                color: '#374151',
+                cursor: page === 1 ? 'not-allowed' : 'pointer',
+                opacity: page === 1 ? 0.6 : 1,
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => { if (page !== 1) e.currentTarget.style.backgroundColor = '#f3f4f6' }}
+              onMouseLeave={(e) => { if (page !== 1) e.currentTarget.style.backgroundColor = 'white' }}
             >
-              <ChevronLeft className="icon" />
+              <ChevronLeft size={16} />
               Anterior
             </button>
             
-            <div className="flex gap-1">
+            <div style={{ display: 'flex', gap: '4px' }}>
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                 const pageNum = Math.max(1, Math.min(totalPages - 4, page - 2)) + i
                 if (pageNum > totalPages) return null
@@ -288,9 +494,21 @@ export function ConversationTable({
                 return (
                   <button
                     key={pageNum}
-                    className={`pagination-btn ${pageNum === page ? "active" : ""}`}
                     onClick={() => handlePageChange(pageNum)}
-                    style={{ width: '32px', height: '32px', padding: '0' }}
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      padding: '0',
+                      borderRadius: '8px',
+                      border: `1px solid ${pageNum === page ? '#3b82f6' : '#e5e7eb'}`,
+                      backgroundColor: pageNum === page ? '#3b82f6' : 'white',
+                      color: pageNum === page ? 'white' : '#374151',
+                      fontWeight: pageNum === page ? '600' : '500',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => { if (pageNum !== page) e.currentTarget.style.backgroundColor = '#f3f4f6' }}
+                    onMouseLeave={(e) => { if (pageNum !== page) e.currentTarget.style.backgroundColor = 'white' }}
                   >
                     {pageNum}
                   </button>
@@ -299,12 +517,26 @@ export function ConversationTable({
             </div>
             
             <button
-              className="pagination-btn"
               onClick={() => handlePageChange(page + 1)}
               disabled={page === totalPages}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+                backgroundColor: 'white',
+                color: '#374151',
+                cursor: page === totalPages ? 'not-allowed' : 'pointer',
+                opacity: page === totalPages ? 0.6 : 1,
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => { if (page !== totalPages) e.currentTarget.style.backgroundColor = '#f3f4f6' }}
+              onMouseLeave={(e) => { if (page !== totalPages) e.currentTarget.style.backgroundColor = 'white' }}
             >
               Siguiente
-              <ChevronRight className="icon" />
+              <ChevronRight size={16} />
             </button>
           </div>
         </div>

@@ -191,19 +191,47 @@ async function getConversationById(id) {
         }
         const conversationData = conversationDoc.data();
         // Obtener mensajes
-        const messagesSnapshot = await conversationDoc.ref.collection('messages')
-            .orderBy('timestamp', 'asc')
-            .get();
-        const messages = messagesSnapshot.docs.map(doc => {
+        let messagesSnapshot;
+        try {
+            // Intentar con 'ts' primero (campo real en Firestore)
+            messagesSnapshot = await conversationDoc.ref.collection('messages')
+                .orderBy('ts', 'asc')
+                .get();
+        }
+        catch (error) {
+            // Si falla, intentar sin ordenar y ordenar en memoria
+            logger_1.default.debug('orderBy ts failed, fetching all messages', { conversationId: id });
+            messagesSnapshot = await conversationDoc.ref.collection('messages').get();
+        }
+        const messages = messagesSnapshot.docs
+            .map(doc => {
             const data = doc.data();
+            // Obtener timestamp de 'ts' o 'timestamp'
+            let timestamp;
+            if (data.ts) {
+                timestamp = data.ts?.toDate?.()?.toISOString() || data.ts?.toMillis?.() ? new Date(data.ts.toMillis()).toISOString() : new Date(data.ts).toISOString();
+            }
+            else if (data.timestamp) {
+                timestamp = typeof data.timestamp === 'string' ? data.timestamp : data.timestamp?.toDate?.()?.toISOString() || new Date().toISOString();
+            }
+            else {
+                timestamp = new Date().toISOString();
+            }
             return {
                 id: doc.id,
-                timestamp: data.timestamp || data.ts?.toDate?.()?.toISOString() || new Date().toISOString(),
-                from: data.from,
-                text: data.text,
+                timestamp,
+                from: data.from || 'usuario',
+                text: data.text || data.message || '',
                 via: data.via,
-                aiSuggested: data.aiSuggested || false
+                aiSuggested: data.aiSuggested || false,
+                deliveryStatus: data.deliveryStatus
             };
+        })
+            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // Ordenar por timestamp
+        logger_1.default.info('Messages retrieved', {
+            conversationId: id,
+            messageCount: messages.length,
+            sampleMessages: messages.slice(0, 2).map(m => ({ id: m.id, from: m.from, textPreview: m.text.substring(0, 30) }))
         });
         const conversation = {
             id: conversationDoc.id,

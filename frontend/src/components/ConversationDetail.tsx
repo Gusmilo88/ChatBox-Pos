@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
-import { ArrowLeft, Send, Phone, Video, MoreVertical, Smile, Paperclip, AlertCircle, MessageSquare } from 'lucide-react'
+import { ArrowLeft, Send, Phone, Video, MoreVertical, Smile, Paperclip, AlertCircle, MessageSquare, Mic, X } from 'lucide-react'
 import { formatPhone, formatTime } from '@/utils/format'
 import { maskPII } from '@/utils/mask'
 import { replyConversation } from '@/services/http'
 import type { ConversationDetail, Message } from '@/types/conversations'
+import { EmojiPicker } from './EmojiPicker'
+import { FilePicker } from './FilePicker'
+import { AudioRecorder } from './AudioRecorder'
+import { LoadingSpinner } from './LoadingSpinner'
 
 // Plantillas de respuestas rápidas
 const QUICK_REPLIES = [
@@ -111,7 +115,11 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
   const [newMessage, setNewMessage] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [showFilePicker, setShowFilePicker] = useState(false)
+  const [showAudioRecorder, setShowAudioRecorder] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -121,20 +129,25 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
     scrollToBottom()
   }, [conversation.messages])
 
-  const handleSendMessage = async () => {
-    if (!newMessage.trim() || isSending) return
+  const handleSendMessage = async (text?: string, file?: File, audioBlob?: Blob) => {
+    const messageText = text || newMessage.trim()
+    if ((!messageText && !file && !audioBlob) || isSending) return
 
-    const messageText = newMessage.trim()
     setIsSending(true)
     setSendError(null)
+    setShowEmojiPicker(false)
+    setShowFilePicker(false)
+    setShowAudioRecorder(false)
 
     // OPTIMISTA: Agregar mensaje inmediatamente al chat
     const optimisticMessage = {
       id: `temp-${Date.now()}`,
       timestamp: new Date().toISOString(),
       from: 'operador' as const,
-      text: messageText,
-      deliveryStatus: 'pending' as const
+      text: messageText || (file ? `📎 ${file.name}` : '🎤 Audio'),
+      deliveryStatus: 'pending' as const,
+      attachment: file ? { type: file.type, name: file.name } : undefined,
+      audio: audioBlob ? true : undefined
     }
 
     // Actualizar la conversación con el mensaje optimista
@@ -150,10 +163,28 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
       // Generar idempotency key único
       const idempotencyKey = `manual-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       
-      await replyConversation(conversation.id, {
-        text: messageText,
-        idempotencyKey
-      })
+      // Si hay archivo o audio, crear FormData
+      if (file || audioBlob) {
+        const formData = new FormData()
+        if (file) {
+          formData.append('file', file)
+          formData.append('text', messageText || '')
+        }
+        if (audioBlob) {
+          formData.append('audio', audioBlob, 'audio.webm')
+          formData.append('text', messageText || '')
+        }
+        formData.append('idempotencyKey', idempotencyKey)
+        
+        // TODO: Implementar endpoint para archivos/audio
+        // await replyConversationWithFile(conversation.id, formData)
+        console.log('Enviando archivo/audio:', { file, audioBlob })
+      } else {
+        await replyConversation(conversation.id, {
+          text: messageText,
+          idempotencyKey
+        })
+      }
 
       // Actualizar estado del mensaje a "enviado"
       const messageIndex = conversation.messages.findIndex(m => m.id === optimisticMessage.id)
@@ -173,6 +204,19 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
     } finally {
       setIsSending(false)
     }
+  }
+
+  const handleEmojiSelect = (emoji: string) => {
+    setNewMessage(prev => prev + emoji)
+    inputRef.current?.focus()
+  }
+
+  const handleFileSelect = (file: File) => {
+    handleSendMessage('', file)
+  }
+
+  const handleAudioComplete = (audioBlob: Blob) => {
+    handleSendMessage('', undefined, audioBlob)
   }
 
   const formatMessageTime = (timestamp: string) => {
@@ -201,64 +245,216 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
   if (isLoading) {
     return (
       <>
-        <div className="whatsapp-messages">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="whatsapp-message-wrapper">
-              <div className="whatsapp-message-bubble">
-                <div className="h-4 bg-gray-300 animate-pulse rounded w-32 mb-2" />
-                <div className="h-3 bg-gray-300 animate-pulse rounded w-16" />
-              </div>
-            </div>
-          ))}
+        <div className="whatsapp-messages" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
+          <LoadingSpinner size="lg" text="Cargando mensajes..." />
         </div>
         <div className="whatsapp-input-container">
           <div className="whatsapp-input-wrapper">
-            <div className="h-8 bg-gray-300 animate-pulse rounded w-full" />
+            <div style={{ flex: 1, height: '40px', backgroundColor: '#f0f0f0', borderRadius: '21px' }} />
           </div>
         </div>
       </>
     )
   }
 
+  // Agrupar mensajes por fecha
+  const groupMessagesByDate = (messages: Message[]) => {
+    const groups: { date: string; messages: Message[] }[] = []
+    let currentDate = ''
+    
+    messages.forEach((message) => {
+      const messageDate = new Date(message.timestamp).toLocaleDateString('es-AR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+      
+      if (messageDate !== currentDate) {
+        currentDate = messageDate
+        groups.push({ date: messageDate, messages: [] })
+      }
+      
+      groups[groups.length - 1].messages.push(message)
+    })
+    
+    return groups
+  }
+
+  const messageGroups = groupMessagesByDate(conversation.messages)
+
   return (
-    <>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Área de mensajes */}
-      <div className="whatsapp-messages">
-        {conversation.messages.map((message) => {
-          const isFromUs = message.from === 'system' || message.from === 'operador'
-          
-          return (
-            <div
-              key={message.id}
-              className={`whatsapp-message-wrapper ${
-                isFromUs ? 'whatsapp-message-outgoing' : 'whatsapp-message-incoming'
-              }`}
-            >
-              <div className="whatsapp-message-bubble">
-                <div className="whatsapp-message-text">
-                  {maskPII(message.text)}
-                </div>
-                <div className="whatsapp-message-meta">
-                  <span className="whatsapp-message-time">
-                    {formatMessageTime(message.timestamp)}
-                  </span>
-                  {isFromUs && (
-                    <span className={`whatsapp-message-status ${
-                      message.deliveryStatus === 'sent' ? 'read' : 
-                      message.deliveryStatus === 'failed' ? 'failed' : 'pending'
-                    }`}>
-                      {message.deliveryStatus === 'sent' ? '✓✓' : 
-                       message.deliveryStatus === 'failed' ? '✗' : '⏳'}
-                    </span>
-                  )}
-                  {!isFromUs && (
-                    <span className="whatsapp-ai-badge">IA</span>
-                  )}
-                </div>
-              </div>
+      <div className="whatsapp-messages" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {conversation.messages.length === 0 ? (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            padding: '40px',
+            color: '#6b7280',
+            textAlign: 'center'
+          }}>
+            <MessageSquare size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
+            <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>
+              No hay mensajes aún
             </div>
-          )
-        })}
+            <div style={{ fontSize: '14px', opacity: 0.8 }}>
+              Comenzá la conversación enviando un mensaje
+            </div>
+          </div>
+        ) : (
+          messageGroups.map((group, groupIndex) => (
+          <div key={groupIndex}>
+            {/* Separador de fecha */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '16px 0',
+              gap: '8px'
+            }}>
+              <div style={{
+                height: '1px',
+                flex: 1,
+                backgroundColor: '#e5e7eb'
+              }}></div>
+              <span style={{
+                padding: '4px 12px',
+                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                borderRadius: '12px',
+                fontSize: '12px',
+                fontWeight: '600',
+                color: '#6b7280',
+                textTransform: 'capitalize'
+              }}>
+                {group.date}
+              </span>
+              <div style={{
+                height: '1px',
+                flex: 1,
+                backgroundColor: '#e5e7eb'
+              }}></div>
+            </div>
+
+            {/* Mensajes del día */}
+            {group.messages.map((message) => {
+              const isFromUs = message.from === 'system' || message.from === 'operador'
+              
+              return (
+                <div
+                  key={message.id}
+                  className={`whatsapp-message-wrapper ${
+                    isFromUs ? 'whatsapp-message-outgoing' : 'whatsapp-message-incoming'
+                  }`}
+                >
+                  <div className="whatsapp-message-bubble">
+                    {/* Mostrar imagen si existe */}
+                    {message.attachment && message.attachment.type?.startsWith('image/') && (
+                      <div style={{
+                        marginBottom: '8px',
+                        borderRadius: '4px',
+                        overflow: 'hidden',
+                        maxWidth: '100%'
+                      }}>
+                        <img
+                          src={message.attachment.url || '#'}
+                          alt={message.attachment.name || 'Imagen'}
+                          style={{
+                            width: '100%',
+                            maxWidth: '300px',
+                            height: 'auto',
+                            display: 'block'
+                          }}
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none'
+                          }}
+                        />
+                      </div>
+                    )}
+                    
+                    {/* Mostrar audio si existe */}
+                    {message.audio && (
+                      <div style={{
+                        marginBottom: '8px',
+                        padding: '12px',
+                        backgroundColor: isFromUs ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px'
+                      }}>
+                        <div style={{
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: '50%',
+                          backgroundColor: isFromUs ? 'rgba(255,255,255,0.2)' : '#25d366',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer'
+                        }}>
+                          <Mic size={20} color={isFromUs ? 'white' : 'white'} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: isFromUs ? 'white' : '#111827',
+                            marginBottom: '4px'
+                          }}>
+                            Mensaje de voz
+                          </div>
+                          <div style={{
+                            fontSize: '12px',
+                            color: isFromUs ? 'rgba(255,255,255,0.8)' : '#6b7280'
+                          }}>
+                            Toca para reproducir
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Mostrar texto si existe */}
+                    {message.text && (
+                      <div className="whatsapp-message-text">
+                        {maskPII(message.text)}
+                      </div>
+                    )}
+                    
+                    <div className="whatsapp-message-meta">
+                      <span className="whatsapp-message-time">
+                        {formatMessageTime(message.timestamp)}
+                      </span>
+                      {isFromUs && (
+                        <span className={`whatsapp-message-status ${
+                          message.deliveryStatus === 'sent' ? 'read' : 
+                          message.deliveryStatus === 'failed' ? 'failed' : 'pending'
+                        }`}>
+                          {message.deliveryStatus === 'sent' ? '✓✓' : 
+                           message.deliveryStatus === 'failed' ? '✗' : '⏳'}
+                        </span>
+                      )}
+                      {message.aiSuggested && (
+                        <span style={{
+                          fontSize: '10px',
+                          color: '#8b5cf6',
+                          fontWeight: '600',
+                          marginLeft: '4px'
+                        }}>
+                          IA
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ))
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -269,12 +465,48 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
       />
 
       {/* Input de mensaje estilo WhatsApp */}
-      <div className="whatsapp-input-container">
+      <div className="whatsapp-input-container" style={{ position: 'relative' }}>
+        {/* Emoji Picker */}
+        {showEmojiPicker && (
+          <EmojiPicker
+            onSelect={handleEmojiSelect}
+            onClose={() => setShowEmojiPicker(false)}
+          />
+        )}
+
+        {/* File Picker */}
+        {showFilePicker && (
+          <FilePicker
+            onSelect={handleFileSelect}
+            onClose={() => setShowFilePicker(false)}
+          />
+        )}
+
+        {/* Audio Recorder */}
+        {showAudioRecorder && (
+          <AudioRecorder
+            onRecordComplete={handleAudioComplete}
+            onCancel={() => setShowAudioRecorder(false)}
+          />
+        )}
+
         <div className="whatsapp-input-wrapper">
-          <button className="whatsapp-input-icon">
+          <button
+            className="whatsapp-input-icon"
+            onClick={() => {
+              setShowEmojiPicker(!showEmojiPicker)
+              setShowFilePicker(false)
+              setShowAudioRecorder(false)
+            }}
+            style={{
+              color: showEmojiPicker ? '#25d366' : '#54656f'
+            }}
+          >
             <Smile size={20} />
           </button>
+          
           <input
+            ref={inputRef}
             type="text"
             placeholder="Escribir mensaje..."
             value={newMessage}
@@ -285,14 +517,47 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
                 handleSendMessage()
               }
             }}
+            onFocus={() => {
+              setShowEmojiPicker(false)
+              setShowFilePicker(false)
+              setShowAudioRecorder(false)
+            }}
             disabled={isSending}
             className="whatsapp-input-field"
           />
-          <button className="whatsapp-input-icon">
-            <Paperclip size={20} />
-          </button>
+          
+          {!newMessage.trim() ? (
+            <button
+              className="whatsapp-input-icon"
+              onClick={() => {
+                setShowFilePicker(!showFilePicker)
+                setShowEmojiPicker(false)
+                setShowAudioRecorder(false)
+              }}
+              style={{
+                color: showFilePicker ? '#25d366' : '#54656f'
+              }}
+            >
+              <Paperclip size={20} />
+            </button>
+          ) : (
+            <button
+              className="whatsapp-input-icon"
+              onClick={() => {
+                setShowAudioRecorder(!showAudioRecorder)
+                setShowEmojiPicker(false)
+                setShowFilePicker(false)
+              }}
+              style={{
+                color: showAudioRecorder ? '#25d366' : '#54656f'
+              }}
+            >
+              <Mic size={20} />
+            </button>
+          )}
+          
           <button 
-            onClick={handleSendMessage}
+            onClick={() => handleSendMessage()}
             disabled={!newMessage.trim() || isSending}
             className="whatsapp-send-button"
           >
@@ -327,6 +592,6 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
           </div>
         )}
       </div>
-    </>
+    </div>
   )
 }

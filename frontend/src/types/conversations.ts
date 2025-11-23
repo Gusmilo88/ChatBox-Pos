@@ -1,11 +1,17 @@
 export type Message = {
   id: string
   timestamp: string // ISO
-  from: 'usuario' | 'operador' | 'sistema'
+  from: 'usuario' | 'operador' | 'sistema' | 'system'
   text: string
   via?: 'whatsapp' | 'ia' | 'manual'
   aiSuggested?: boolean
   deliveryStatus?: 'pending' | 'sent' | 'failed'
+  attachment?: {
+    type: string
+    name: string
+    url?: string
+  }
+  audio?: boolean
 }
 
 export type ConversationDetail = {
