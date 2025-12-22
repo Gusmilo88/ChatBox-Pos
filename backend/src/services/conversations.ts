@@ -475,6 +475,13 @@ export async function simulateIncoming(request: IncomingMessageRequest): Promise
     try {
       const botResponse = await generateBotReply(normalizedPhone, sanitizedText, conversationId);
       
+      // Verificar si la respuesta indica derivación a humano
+      const isHumanTransfer = botResponse.replies.some(reply => 
+        reply.includes('derivamos con el equipo') || 
+        reply.includes('te contactará un profesional') ||
+        reply.includes('te derivamos')
+      );
+      
       if (botResponse.replies && botResponse.replies.length > 0) {
         // Encolar respuestas automáticas
         for (const reply of botResponse.replies) {
@@ -497,14 +504,17 @@ export async function simulateIncoming(request: IncomingMessageRequest): Promise
             conversationId,
             phone: maskPII(normalizedPhone),
             via: botResponse.via,
-            replyLength: reply.length
+            replyLength: reply.length,
+            isHumanTransfer
           });
         }
         
         // Actualizar conversación con último mensaje del sistema
+        // Si se deriva a humano, marcar como needsReply
         await collections.conversations().doc(conversationId).update({
           lastMessageAt: new Date(),
           lastMessage: botResponse.replies[0],
+          needsReply: isHumanTransfer, // Marcar como necesita respuesta si se deriva a humano
           updatedAt: new Date()
         });
       }

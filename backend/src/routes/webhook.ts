@@ -1,15 +1,9 @@
 import { Router, Request, Response } from 'express'
 import { logger } from '../utils/logger'
 import { simulateIncoming } from '../services/conversations'
-import { send360Text } from '../services/whatsapp360'
 
 /**
- * Rutas webhook para 360dialog WhatsApp Business API
- * 
- * TODO: Si todo funciona correctamente con 360dialog:
- * - Reemplazar referencia en src/index.ts línea 35:
- *   app.use('/api/webhook/whatsapp', express.raw({ type: 'application/json' }), webhook360Router);
- * - Eliminar o deprecar src/routes/whatsapp.ts si ya no se usa Meta Cloud API
+ * Rutas webhook para Meta WhatsApp Cloud API
  * 
  * Variables de entorno requeridas:
  * - WHATSAPP_VERIFY_TOKEN: Token para verificación del webhook
@@ -18,13 +12,10 @@ import { send360Text } from '../services/whatsapp360'
 const router = Router()
 
 /**
- * Estructura esperada del webhook POST de 360dialog
- * Adaptado de la documentación: https://docs.360dialog.com/whatsapp-api/whatsapp-api/webhooks
- * 
- * Nota: El formato de 360dialog es similar al de Meta Cloud API,
- * pero puede tener diferencias menores en la estructura.
+ * Estructura esperada del webhook POST de Meta WhatsApp Cloud API
+ * Documentación: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks
  */
-interface D360WebhookEntry {
+interface MetaWebhookEntry {
   id: string
   changes: Array<{
     value: {
@@ -57,24 +48,24 @@ interface D360WebhookEntry {
   }>
 }
 
-interface D360WebhookPayload {
+interface MetaWebhookPayload {
   object: string
-  entry: D360WebhookEntry[]
+  entry: MetaWebhookEntry[]
 }
 
 /**
  * GET /api/webhook/whatsapp
- * Verificación del webhook (handshake inicial de 360dialog/Meta)
+ * Verificación del webhook (handshake inicial de Meta)
  * 
  * Query params esperados:
  * - hub.mode: debe ser 'subscribe'
  * - hub.verify_token: debe coincidir con WHATSAPP_VERIFY_TOKEN
  * - hub.challenge: string aleatorio que debemos retornar
  */
-export function handle360WebhookVerify(req: Request, res: Response): void {
+export function handleWebhookVerify(req: Request, res: Response): void {
   const { 'hub.mode': mode, 'hub.verify_token': verifyToken, 'hub.challenge': challenge } = req.query
 
-  logger.info('whatsapp360_webhook_verify_request', {
+  logger.info('whatsapp_webhook_verify_request', {
     mode,
     hasVerifyToken: !!verifyToken,
     hasChallenge: !!challenge
@@ -83,7 +74,7 @@ export function handle360WebhookVerify(req: Request, res: Response): void {
   const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN
 
   if (!expectedToken) {
-    logger.error('whatsapp360_verify_token_not_configured', {
+    logger.error('whatsapp_verify_token_not_configured', {
       message: 'WHATSAPP_VERIFY_TOKEN no está configurado en .env'
     })
     res.status(500).json({ error: 'verify_token_not_configured' })
@@ -92,7 +83,7 @@ export function handle360WebhookVerify(req: Request, res: Response): void {
 
   // Validar modo y token
   if (mode === 'subscribe' && verifyToken === expectedToken) {
-    logger.info('whatsapp360_webhook_verified', {
+    logger.info('whatsapp_webhook_verified', {
       mode,
       challenge: challenge?.toString().substring(0, 10) + '...'
     })
@@ -102,7 +93,7 @@ export function handle360WebhookVerify(req: Request, res: Response): void {
     return
   }
 
-  logger.warn('whatsapp360_webhook_verification_failed', {
+  logger.warn('whatsapp_webhook_verification_failed', {
     mode,
     verifyToken: verifyToken ? '***' + String(verifyToken).slice(-4) : 'none',
     expectedToken: '***' + expectedToken.slice(-4)
@@ -113,29 +104,29 @@ export function handle360WebhookVerify(req: Request, res: Response): void {
 
 /**
  * POST /api/webhook/whatsapp
- * Recibe eventos de mensajes entrantes de 360dialog
+ * Recibe eventos de mensajes entrantes de Meta WhatsApp Cloud API
  * 
  * IMPORTANTE: Responde rápidamente (200 OK) y procesa de forma asíncrona
- * para no bloquear el ciclo de eventos y cumplir con el timeout de 360dialog.
+ * para no bloquear el ciclo de eventos y cumplir con el timeout de Meta (20 segundos).
  */
-export async function handle360WebhookMessage(req: Request, res: Response): Promise<void> {
+export async function handleWebhookMessage(req: Request, res: Response): Promise<void> {
   try {
     // Responder inmediatamente para no bloquear
     res.status(200).json({ ok: true })
 
     // Parsear el body (viene como Buffer por express.raw())
-    let payload: D360WebhookPayload
+    let payload: MetaWebhookPayload
     try {
       const rawBody = req.body
       payload = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody
     } catch (parseError) {
-      logger.error('whatsapp360_webhook_parse_error', {
+      logger.error('whatsapp_webhook_parse_error', {
         error: parseError instanceof Error ? parseError.message : 'Unknown parse error'
       })
       return
     }
 
-    logger.info('whatsapp360_webhook_received', {
+    logger.info('whatsapp_webhook_received', {
       object: payload.object,
       entryCount: payload.entry?.length || 0
     })
@@ -164,7 +155,7 @@ export async function handle360WebhookMessage(req: Request, res: Response): Prom
                     via: 'whatsapp'
                   })
                     .then(async (result) => {
-                      logger.info('whatsapp360_message_processed', {
+                      logger.info('whatsapp_message_processed', {
                         from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
                         messageId: message.id,
                         conversationId: result.conversationId
@@ -172,14 +163,9 @@ export async function handle360WebhookMessage(req: Request, res: Response): Prom
 
                       // Las respuestas ya están encoladas en outbox por simulateIncoming
                       // El worker de outbox las procesará automáticamente
-                      // Pero también podemos enviarlas directamente aquí para respuesta inmediata
-                      // (opcional: comentar si prefieres solo usar outbox)
-                      
-                      // NOTA: Por ahora dejamos que el outbox worker envíe los mensajes
-                      // para tener mejor control de errores y reintentos
                     })
                     .catch((error) => {
-                      logger.error('whatsapp360_message_process_error', {
+                      logger.error('whatsapp_message_process_error', {
                         error: error instanceof Error ? error.message : 'Unknown error',
                         from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
                         messageId: message.id,
@@ -195,7 +181,7 @@ export async function handle360WebhookMessage(req: Request, res: Response): Prom
             // Log de status updates (entregas, lecturas, etc.)
             if (change.value?.statuses && Array.isArray(change.value.statuses)) {
               for (const status of change.value.statuses) {
-                logger.debug('whatsapp360_status_update', {
+                logger.debug('whatsapp_status_update', {
                   messageId: status.id,
                   status: status.status,
                   recipientId: status.recipient_id.replace(/\d(?=\d{4})/g, '*')
@@ -207,13 +193,13 @@ export async function handle360WebhookMessage(req: Request, res: Response): Prom
       }
     }
 
-    logger.info('whatsapp360_webhook_processed', {
+    logger.info('whatsapp_webhook_processed', {
       object: payload.object,
       processedMessages
     })
 
   } catch (error) {
-    logger.error('whatsapp360_webhook_error', {
+    logger.error('whatsapp_webhook_error', {
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     })
@@ -222,8 +208,8 @@ export async function handle360WebhookMessage(req: Request, res: Response): Prom
 }
 
 // Rutas
-router.get('/', handle360WebhookVerify)
-router.post('/', handle360WebhookMessage)
+router.get('/', handleWebhookVerify)
+router.post('/', handleWebhookMessage)
 
 export default router
 

@@ -4,7 +4,7 @@ exports.handle360WebhookVerify = handle360WebhookVerify;
 exports.handle360WebhookMessage = handle360WebhookMessage;
 const express_1 = require("express");
 const logger_1 = require("../utils/logger");
-const processMessage_1 = require("../services/processMessage");
+const conversations_1 = require("../services/conversations");
 /**
  * Rutas webhook para 360dialog WhatsApp Business API
  *
@@ -97,25 +97,33 @@ async function handle360WebhookMessage(req, res) {
                                 if (message.type === 'text' && message.text?.body) {
                                     const from = message.from;
                                     const text = message.text.body;
-                                    // Procesar de forma asíncrona (no bloquea)
-                                    (0, processMessage_1.processInbound)(from, text)
-                                        .then((replies) => {
+                                    // Normalizar número de teléfono (agregar + si no lo tiene)
+                                    const normalizedFrom = from.startsWith('+') ? from : `+${from}`;
+                                    // Procesar mensaje entrante (crea conversación, genera respuesta, encola en outbox)
+                                    (0, conversations_1.simulateIncoming)({
+                                        phone: normalizedFrom,
+                                        text: text,
+                                        via: 'whatsapp'
+                                    })
+                                        .then(async (result) => {
                                         logger_1.logger.info('whatsapp360_message_processed', {
-                                            from: from.replace(/\d(?=\d{4})/g, '*'),
+                                            from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
                                             messageId: message.id,
-                                            repliesCount: replies.length
+                                            conversationId: result.conversationId
                                         });
-                                        // TODO: Enviar respuestas usando send360Text si es necesario
-                                        // Ejemplo:
-                                        // for (const reply of replies) {
-                                        //   await send360Text(from, reply)
-                                        // }
+                                        // Las respuestas ya están encoladas en outbox por simulateIncoming
+                                        // El worker de outbox las procesará automáticamente
+                                        // Pero también podemos enviarlas directamente aquí para respuesta inmediata
+                                        // (opcional: comentar si prefieres solo usar outbox)
+                                        // NOTA: Por ahora dejamos que el outbox worker envíe los mensajes
+                                        // para tener mejor control de errores y reintentos
                                     })
                                         .catch((error) => {
                                         logger_1.logger.error('whatsapp360_message_process_error', {
                                             error: error instanceof Error ? error.message : 'Unknown error',
-                                            from: from.replace(/\d(?=\d{4})/g, '*'),
-                                            messageId: message.id
+                                            from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                                            messageId: message.id,
+                                            stack: error instanceof Error ? error.stack : undefined
                                         });
                                     });
                                     processedMessages++;

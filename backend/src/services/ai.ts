@@ -52,16 +52,52 @@ export async function aiReply(ctx: AiContext): Promise<string> {
   }
 
   try {
+    // Obtener datos del cliente desde Firebase si es cliente
+    let clienteInfo = '';
+    if (ctx.role === 'cliente' && ctx.cuit) {
+      try {
+        const { getDoc } = await import('./clientsRepo');
+        const cliente = await getDoc(ctx.cuit);
+        if (cliente) {
+          // Construir información completa del cliente desde Firebase
+          const clienteData: string[] = [];
+          clienteData.push(`Nombre: ${cliente.nombre || 'No disponible'}`);
+          clienteData.push(`CUIT: ${ctx.cuit}`);
+          
+          // Agregar información adicional si está disponible (sin datos sensibles)
+          if (cliente.categoria_monotributo) {
+            clienteData.push(`Categoría Monotributo: ${cliente.categoria_monotributo}`);
+          }
+          if (cliente.ingresos_brutos) {
+            clienteData.push(`Ingresos Brutos: ${cliente.ingresos_brutos}`);
+          }
+          if (cliente.estado) {
+            clienteData.push(`Estado: ${cliente.estado}`);
+          }
+          
+          clienteInfo = `\n\nINFORMACIÓN DEL CLIENTE DESDE BASE DE DATOS (NO INVENTES NADA, SOLO USA ESTO):\n${clienteData.join('\n')}\n\nIMPORTANTE: NO tienes acceso a saldos, vencimientos, ni comprobantes específicos. Si preguntan por eso, decí que deben consultar en la app (https://app.posyasociados.com/login) o hablar con Iván.`;
+        }
+      } catch (error) {
+        logger.debug('Error obteniendo datos del cliente para IA', { error: (error as Error)?.message });
+      }
+    }
+
     // Construir system prompt
-    const systemPrompt = `Sos un asistente de un estudio contable. Escribí en español rioplatense usando 'vos'. Sé claro y breve (máx. 4 líneas).
-No inventes datos de clientes, saldos ni comprobantes. Para temas contables específicos, recomendá hablar con Iván del estudio.
-Si el usuario no es cliente, orientá a captar datos y proponer contacto.
-Nunca prometas acciones automáticas externas; ofrecé derivar al equipo.`;
+    const systemPrompt = `Sos un asistente de un estudio contable llamado "POS & Asociados". Escribí en español rioplatense usando 'vos'. Sé claro y breve (máx. 4 líneas).
+
+REGLAS ESTRICTAS:
+- SOLO respondé preguntas relacionadas con servicios contables, impositivos, facturación, declaraciones, monotributo, ingresos brutos, ARCA, o temas del estudio.
+- Si te preguntan sobre temas NO relacionados (deportes, entretenimiento, política, etc.), respondé: "Solo puedo ayudarte con temas contables e impositivos. Si tenés alguna consulta sobre nuestros servicios, te puedo ayudar. Si no, te derivo con el equipo."
+- NO inventes datos de clientes, saldos, vencimientos ni comprobantes. Si es cliente y pregunta por saldos/vencimientos, decí que consulte en la app (https://app.posyasociados.com/login) o hable con Iván.
+- Para temas contables específicos, recomendá hablar con Iván del estudio.
+- Si el usuario no es cliente, orientá a captar datos y proponer contacto.
+- Nunca prometas acciones automáticas externas; ofrecé derivar al equipo.
+- Guiate por el flujo del bot predefinido: si el cliente quiere consultar ARCA, facturas, ventas, reuniones, o hablar con Iván, orientalo hacia esas opciones.`;
 
     // Prefix dinámico según role
     let contextPrefix = '';
     if (ctx.role === 'cliente') {
-      contextPrefix = 'El usuario es cliente autenticado (CUIT presente).';
+      contextPrefix = `El usuario es cliente autenticado (CUIT: ${ctx.cuit || 'no disponible'}).${clienteInfo}`;
     } else {
       contextPrefix = `El usuario no es cliente (lead). Su interés es: ${ctx.interest || 'no especificado'}.`;
     }

@@ -41,12 +41,37 @@ class OutboxWorker {
         if (this.isNotYetDue(data))
             return;
         try {
-            await this.driver.sendText({ phone: data.to, text: data.text });
-            await doc.ref.update({
-                sentAt: firestore_1.Timestamp.now(),
-                error: null,
-                nextAttemptAt: null
+            const result = await this.driver.sendText({
+                phone: data.to,
+                text: data.text,
+                idempotencyKey: doc.id // Usar ID del documento como idempotency key
             });
+            if (result.ok) {
+                // Éxito: marcar como enviado
+                await doc.ref.update({
+                    sentAt: firestore_1.Timestamp.now(),
+                    error: null,
+                    nextAttemptAt: null,
+                    remoteId: result.remoteId
+                });
+                logger_1.logger.info('outbox_send_success', {
+                    id: doc.id,
+                    remoteId: result.remoteId,
+                    phone: data.to.replace(/\d(?=\d{4})/g, '*')
+                });
+            }
+            else {
+                // Error: programar reintento
+                const msg = result.error || 'Error desconocido';
+                const retries = (data.retries ?? 0) + 1;
+                const delayMs = Math.min(60000 * retries, 10 * 60 * 1000);
+                await doc.ref.update({
+                    retries,
+                    error: msg,
+                    nextAttemptAt: firestore_1.Timestamp.fromDate(new Date(Date.now() + delayMs))
+                });
+                logger_1.logger.error('outbox_send_failed', { id: doc.id, error: msg, retries });
+            }
         }
         catch (error) {
             const msg = error?.message ?? String(error);
@@ -57,7 +82,7 @@ class OutboxWorker {
                 error: msg,
                 nextAttemptAt: firestore_1.Timestamp.fromDate(new Date(Date.now() + delayMs))
             });
-            logger_1.logger.error('outbox_send_failed', { id: doc.id, error: msg });
+            logger_1.logger.error('outbox_send_exception', { id: doc.id, error: msg, retries });
         }
     }
     async enqueue(conversationId, to, text) {

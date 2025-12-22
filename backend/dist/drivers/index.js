@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.MockWhatsAppDriver = void 0;
 exports.createWhatsAppDriver = createWhatsAppDriver;
 const mock_1 = require("./mock");
+const cloud_1 = require("./cloud");
 /**
  * Factory para crear drivers de WhatsApp
  */
@@ -11,8 +12,8 @@ function createWhatsAppDriver(type) {
         case 'mock':
             return new mock_1.MockWhatsAppDriver();
         case 'cloud':
-            // TODO: Implementar driver de WhatsApp Cloud API
-            throw new Error('Cloud driver not implemented yet');
+            // Driver de Meta WhatsApp Cloud API
+            return new cloud_1.CloudWhatsAppDriver();
         case 'local':
             // TODO: Implementar driver local (ej. WhatsApp Web API)
             throw new Error('Local driver not implemented yet');

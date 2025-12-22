@@ -14,8 +14,7 @@ import simulateRouter from './routes/simulate';
 import whatsappRouter from './routes/whatsapp';
 import conversationsRouter from './routes/conversations';
 import authRouter from './routes/auth';
-import webhook360Router from './routes/webhook360';
-import wa360TestRouter from './routes/wa360_test';
+import webhookRouter from './routes/webhook';
 import aiStatsRouter from './routes/aiStats';
 import statsRouter from './routes/stats';
 import autoRepliesRouter from './routes/autoReplies';
@@ -43,8 +42,8 @@ app.use('/auth', authRouter);
 // Simulación (pública, para testing)
 app.use('/api/simulate', simulateRouter);
 
-// 360dialog: webhook (raw body)
-app.use('/api/webhook/whatsapp', express.raw({ type: 'application/json' }), webhook360Router);
+// Meta WhatsApp: webhook (raw body)
+app.use('/api/webhook/whatsapp', express.raw({ type: 'application/json' }), webhookRouter);
 
 // Rutas protegidas por sesión
 app.use('/api/conversations', requireSession, conversationsRouter);
@@ -53,8 +52,6 @@ app.use('/api/ai', aiStatsRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/auto-replies', requireSession, autoRepliesRouter);
 
-// Rutas protegidas por API key
-app.use('/api/wa360/test', requireApiKey(), wa360TestRouter);
 
 // 404 catch-all (SIN '*')
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
@@ -66,8 +63,33 @@ app.use((err: any, req: any, res: any, _next: any) => {
   res.status(500).json({ error: 'internal_error' });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   logger?.info?.(`Server listening on http://localhost:${PORT}`);
-  logger?.info?.('360dialog webhook mounted at /api/webhook/whatsapp');
-  logger?.info?.('360dialog test mounted at /api/wa360/test');
+  logger?.info?.('Meta WhatsApp webhook mounted at /api/webhook/whatsapp');
+  
+  // Iniciar outbox worker automáticamente
+  if (process.env.START_OUTBOX_WORKER !== 'false') {
+    try {
+      const { OutboxWorker } = await import('./worker/outbox');
+      const { config } = await import('./config/env');
+      
+      const worker = new OutboxWorker();
+      setInterval(async () => {
+        try {
+          await worker.runBatchOnce();
+        } catch (error) {
+          logger?.error?.('Outbox worker error', { error: (error as Error)?.message });
+        }
+      }, config.outboxPollIntervalMs);
+      
+      logger?.info?.('Outbox worker iniciado automáticamente', {
+        pollInterval: config.outboxPollIntervalMs,
+        driver: config.whatsappDriver
+      });
+    } catch (error) {
+      logger?.warn?.('No se pudo iniciar outbox worker automáticamente', { 
+        error: (error as Error)?.message 
+      });
+    }
+  }
 });

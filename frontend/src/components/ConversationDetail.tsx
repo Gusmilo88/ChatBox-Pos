@@ -442,14 +442,20 @@ export function ConversationDetail({ conversation, isLoading }: ConversationDeta
                            message.deliveryStatus === 'failed' ? '✗' : '⏳'}
                         </span>
                       )}
-                      {message.aiSuggested && (
+                      {/* Mostrar etiqueta de origen del mensaje */}
+                      {isFromUs && (
                         <span style={{
                           fontSize: '10px',
-                          color: '#8b5cf6',
+                          color: message.from === 'operador' ? '#10b981' : '#8b5cf6',
                           fontWeight: '600',
-                          marginLeft: '4px'
+                          marginLeft: '4px',
+                          textTransform: 'uppercase'
                         }}>
-                          IA
+                          {message.from === 'operador' 
+                            ? 'Humano' 
+                            : message.aiSuggested 
+                              ? 'IA de Pos & Asociados 🤖' 
+                              : 'Bot de Pos & Asociados 🤖'}
                         </span>
                       )}
                     </div>

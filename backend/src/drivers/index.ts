@@ -1,5 +1,6 @@
 import { WhatsAppDriver, DriverType } from './whatsappDriver'
 import { MockWhatsAppDriver } from './mock'
+import { CloudWhatsAppDriver } from './cloud'
 
 /**
  * Factory para crear drivers de WhatsApp
@@ -10,8 +11,8 @@ export function createWhatsAppDriver(type: DriverType): WhatsAppDriver {
       return new MockWhatsAppDriver()
     
     case 'cloud':
-      // TODO: Implementar driver de WhatsApp Cloud API
-      throw new Error('Cloud driver not implemented yet')
+      // Driver de Meta WhatsApp Cloud API
+      return new CloudWhatsAppDriver()
     
     case 'local':
       // TODO: Implementar driver local (ej. WhatsApp Web API)
