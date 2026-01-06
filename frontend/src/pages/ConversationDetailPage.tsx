@@ -1,41 +1,75 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, AlertCircle, Video, Phone, MoreVertical, Info, Download, FileText, FileSpreadsheet } from 'lucide-react'
+import { ArrowLeft, AlertCircle, Video, Phone, MoreVertical, Info, Download, FileText, FileSpreadsheet, UserPlus, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConversationDetail } from '@/components/ConversationDetail'
 import { EmptyState } from '@/components/EmptyState'
 import { ContactInfo } from '@/components/ContactInfo'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { fetchConversationDetail } from '@/services/api'
+import { assignConversation, getOperators } from '@/services/http'
 import { useNotifications } from '@/hooks/useNotifications'
+import { useAuth } from '@/hooks/useAuth'
 import { exportConversationDetailToPDF, exportConversationDetailToExcel } from '@/utils/export'
 
 export function ConversationDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
   const [showContactInfo, setShowContactInfo] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
+  const [showAssignMenu, setShowAssignMenu] = useState(false)
   const { showNotification } = useNotifications()
   const lastMessageCountRef = useRef<number>(0)
   const exportMenuRef = useRef<HTMLDivElement>(null)
+  const assignMenuRef = useRef<HTMLDivElement>(null)
+  
+  const isOwner = user?.role === 'owner'
 
-  // Cerrar menú al hacer clic fuera
+  // Cerrar menús al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
         setShowExportMenu(false)
       }
+      if (assignMenuRef.current && !assignMenuRef.current.contains(event.target as Node)) {
+        setShowAssignMenu(false)
+      }
     }
 
-    if (showExportMenu) {
+    if (showExportMenu || showAssignMenu) {
       document.addEventListener('mousedown', handleClickOutside)
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [showExportMenu])
+  }, [showExportMenu, showAssignMenu])
+  
+  // Cargar operadores si es owner
+  const { data: operatorsData } = useQuery({
+    queryKey: ['operators'],
+    queryFn: getOperators,
+    enabled: isOwner,
+    staleTime: 5 * 60 * 1000 // 5 minutos
+  })
+  
+  // Mutación para asignar conversación
+  const assignMutation = useMutation({
+    mutationFn: ({ assignedTo, notifyClient }: { assignedTo: string | null; notifyClient: boolean }) =>
+      assignConversation(id!, assignedTo, notifyClient),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['conversation', id] })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      setShowAssignMenu(false)
+      showNotification('Éxito', 'Conversación asignada correctamente', 'assign-success')
+    },
+    onError: (error: Error) => {
+      showNotification('Error', error.message || 'Error al asignar conversación', 'assign-error', undefined, 'error')
+    }
+  })
   
   const {
     data: conversation,
@@ -191,12 +225,17 @@ export function ConversationDetailPage() {
         <div className="whatsapp-avatar">
           {conversation.name ? conversation.name.charAt(0).toUpperCase() : '?'}
         </div>
-        <div className="whatsapp-contact-info">
+          <div className="whatsapp-contact-info">
           <div className="whatsapp-contact-name">
             {conversation.name || conversation.phone}
           </div>
           <div className="whatsapp-contact-status">
             {conversation.isClient ? 'Cliente' : 'No Cliente'}
+            {conversation.assignedTo && (
+              <span style={{ marginLeft: '8px', fontSize: '12px', color: '#6b7280' }}>
+                • Asignado a {conversation.assignedTo.split('@')[0]}
+              </span>
+            )}
           </div>
         </div>
         <div className="whatsapp-header-actions" style={{ position: 'relative' }}>
@@ -277,6 +316,121 @@ export function ConversationDetailPage() {
               </div>
             )}
           </div>
+          
+          {/* Botón de asignar (solo para owners) */}
+          {isOwner && (
+            <div ref={assignMenuRef} style={{ position: 'relative', display: 'inline-block' }}>
+              <button 
+                className="whatsapp-header-icon"
+                onClick={() => setShowAssignMenu(!showAssignMenu)}
+                style={{
+                  backgroundColor: showAssignMenu ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                  color: conversation.assignedTo ? '#10b981' : undefined
+                }}
+                title="Asignar conversación"
+              >
+                {conversation.assignedTo ? <Users size={20} /> : <UserPlus size={20} />}
+              </button>
+              
+              {showAssignMenu && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '4px',
+                  backgroundColor: 'white',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                  zIndex: 1000,
+                  minWidth: '220px',
+                  maxHeight: '300px',
+                  overflowY: 'auto'
+                }}>
+                  <div style={{
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: '#6b7280',
+                    borderBottom: '1px solid #e5e7eb',
+                    textTransform: 'uppercase'
+                  }}>
+                    Asignar a:
+                  </div>
+                  
+                  <button
+                    onClick={() => {
+                      assignMutation.mutate({ assignedTo: null, notifyClient: false })
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 16px',
+                      textAlign: 'left',
+                      border: 'none',
+                      background: conversation.assignedTo ? 'transparent' : '#f3f4f6',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      color: '#374151',
+                      transition: 'background-color 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = conversation.assignedTo ? 'transparent' : '#f3f4f6'}
+                    disabled={assignMutation.isPending}
+                  >
+                    <span>Sin asignar</span>
+                  </button>
+                  
+                  {operatorsData?.operators.map((operator) => (
+                    <button
+                      key={operator.id}
+                      onClick={() => {
+                        assignMutation.mutate({ assignedTo: operator.email, notifyClient: true })
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 16px',
+                        textAlign: 'left',
+                        border: 'none',
+                        background: conversation.assignedTo === operator.email ? '#f3f4f6' : 'transparent',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        color: '#374151',
+                        transition: 'background-color 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        borderTop: '1px solid #e5e7eb'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = conversation.assignedTo === operator.email ? '#f3f4f6' : 'transparent'}
+                      disabled={assignMutation.isPending}
+                    >
+                      <Users size={16} style={{ color: conversation.assignedTo === operator.email ? '#10b981' : '#9ca3af' }} />
+                      <span>{operator.name}</span>
+                      {conversation.assignedTo === operator.email && (
+                        <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#10b981' }}>✓</span>
+                      )}
+                    </button>
+                  ))}
+                  
+                  {assignMutation.isPending && (
+                    <div style={{
+                      padding: '12px',
+                      textAlign: 'center',
+                      fontSize: '12px',
+                      color: '#6b7280',
+                      borderTop: '1px solid #e5e7eb'
+                    }}>
+                      Asignando...
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           
           <button 
             className="whatsapp-header-icon"

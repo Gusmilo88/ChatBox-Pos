@@ -6,6 +6,7 @@ export type ConversationListItem = {
   lastMessageAt: string // ISO
   unreadCount: number
   needsReply: boolean
+  assignedTo?: string // Email del operador asignado (null = sin asignar)
 }
 
 export type ConversationListResponse = {
@@ -31,6 +32,7 @@ export type ConversationDetail = {
   isClient: boolean
   needsReply: boolean
   messages: Message[]
+  assignedTo?: string // Email del operador asignado (null = sin asignar)
 }
 
 export type IncomingMessageRequest = {
@@ -67,4 +69,9 @@ export type OutboxMessage = {
   status: 'pending' | 'sent' | 'failed'
   tries: number
   idempotencyKey?: string
+}
+
+export type AssignConversationRequest = {
+  assignedTo: string // Email del operador a asignar (null para desasignar)
+  notifyClient?: boolean // Si enviar mensaje automático al cliente
 }

@@ -15,6 +15,7 @@ export type ConversationDetail = {
   isClient: boolean
   messages: Message[]
   needsReply: boolean
+  assignedTo?: string // Email del operador asignado (null = sin asignar)
 }
 
 export type ConversationListItem = {
@@ -26,6 +27,7 @@ export type ConversationListItem = {
   lastMessage?: string // Último mensaje de la conversación
   unreadCount: number
   needsReply: boolean
+  assignedTo?: string // Email del operador asignado (null = sin asignar)
 }
 
 export type ConversationListResponse = {

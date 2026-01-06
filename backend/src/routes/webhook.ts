@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express'
 import { logger } from '../utils/logger'
 import { simulateIncoming } from '../services/conversations'
+import { detectOperatorResponse, forwardOperatorResponseToClient, forwardClientUpdateToOperator } from '../services/operatorForwarding'
+import { getOperatorByPhone } from '../services/autoDerivation'
+import { collections } from '../firebase'
 
 /**
  * Rutas webhook para Meta WhatsApp Cloud API
@@ -147,6 +150,84 @@ export async function handleWebhookMessage(req: Request, res: Response): Promise
 
                   // Normalizar número de teléfono (agregar + si no lo tiene)
                   const normalizedFrom = from.startsWith('+') ? from : `+${from}`
+
+                  // DETECCIÓN DE RESPUESTA DE OPERADOR
+                  // Primero verificar si el mensaje viene de un operador (secretaria)
+                  const operatorResponse = await detectOperatorResponse(normalizedFrom, text)
+                  
+                  if (operatorResponse?.isOperatorResponse && operatorResponse.operator && operatorResponse.targetClientPhone) {
+                    // Es una respuesta de operador, reenviar al cliente
+                    logger.info('operator_response_detected', {
+                      operator: operatorResponse.operator.name,
+                      operatorPhone: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                      targetClient: operatorResponse.targetClientPhone.replace(/\d(?=\d{4})/g, '*'),
+                      messagePreview: operatorResponse.cleanMessage?.substring(0, 50)
+                    })
+
+                    // Buscar conversación asignada a este operador con este cliente
+                    const conversationSnapshot = await collections.conversations()
+                      .where('phone', '==', operatorResponse.targetClientPhone)
+                      .where('assignedTo', '==', operatorResponse.operator.phone)
+                      .limit(1)
+                      .get()
+
+                    if (!conversationSnapshot.empty) {
+                      const conversationDoc = conversationSnapshot.docs[0]
+                      const conversationId = conversationDoc.id
+
+                      // Reenviar respuesta del operador al cliente
+                      await forwardOperatorResponseToClient(
+                        conversationId,
+                        operatorResponse.targetClientPhone,
+                        operatorResponse.cleanMessage || text,
+                        operatorResponse.operator
+                      )
+
+                      logger.info('operator_response_forwarded', {
+                        conversationId,
+                        operator: operatorResponse.operator.name,
+                        clientPhone: operatorResponse.targetClientPhone.replace(/\d(?=\d{4})/g, '*')
+                      })
+                    } else {
+                      logger.warn('conversation_not_found_for_operator_response', {
+                        operator: operatorResponse.operator.name,
+                        clientPhone: operatorResponse.targetClientPhone.replace(/\d(?=\d{4})/g, '*')
+                      })
+                    }
+
+                    processedMessages++
+                    continue // No procesar como mensaje de cliente
+                  }
+
+                  // Si no es respuesta de operador, procesar como mensaje normal de cliente
+                  // Pero primero verificar si hay una conversación asignada y actualizar al operador
+                  const existingConversation = await collections.conversations()
+                    .where('phone', '==', normalizedFrom)
+                    .limit(1)
+                    .get()
+
+                  if (!existingConversation.empty) {
+                    const conversationDoc = existingConversation.docs[0]
+                    const conversationData = conversationDoc.data()
+                    
+                    // Si la conversación está asignada a un operador, reenviar actualización
+                    if (conversationData.assignedTo) {
+                      const assignedOperator = getOperatorByPhone(conversationData.assignedTo)
+                      if (assignedOperator) {
+                        await forwardClientUpdateToOperator(
+                          conversationDoc.id,
+                          normalizedFrom,
+                          conversationData.name || null,
+                          text,
+                          assignedOperator
+                        ).catch(err => {
+                          logger.error('error_forwarding_client_update', {
+                            error: err instanceof Error ? err.message : String(err)
+                          })
+                        })
+                      }
+                    }
+                  }
 
                   // Procesar mensaje entrante (crea conversación, genera respuesta, encola en outbox)
                   simulateIncoming({

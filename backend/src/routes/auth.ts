@@ -129,4 +129,39 @@ router.get('/me',
   }
 )
 
+// GET /auth/operators - Listar operadores disponibles (solo para owners)
+router.get('/operators',
+  requireSession,
+  async (req, res) => {
+    try {
+      // Solo owners pueden ver la lista de operadores
+      if (req.user?.role !== 'owner') {
+        return res.status(403).json({ error: 'No autorizado' })
+      }
+
+      const { collections } = await import('../firebase')
+      const operatorsSnapshot = await collections.admins()
+        .where('role', '==', 'operador')
+        .where('isActive', '==', true)
+        .get()
+
+      const operators = operatorsSnapshot.docs.map(doc => {
+        const data = doc.data()
+        return {
+          id: doc.id,
+          email: data.email,
+          name: data.name || data.email.split('@')[0],
+          role: data.role
+        }
+      })
+
+      res.json({ operators })
+    } catch (error) {
+      const msg = (error instanceof Error) ? error.message : String(error);
+      logger.error('error_listing_operators', { error: msg })
+      res.status(500).json({ error: 'Error interno del servidor' })
+    }
+  }
+)
+
 export default router

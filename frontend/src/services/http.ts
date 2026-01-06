@@ -70,6 +70,23 @@ export async function replyConversation(id: string, request: ReplyRequest): Prom
   })
 }
 
+// Asignar conversación a operador
+export async function assignConversation(
+  id: string, 
+  assignedTo: string | null, 
+  notifyClient: boolean = true
+): Promise<{ success: boolean; operatorName: string | null }> {
+  return apiRequest(`/api/conversations/${id}/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ assignedTo, notifyClient })
+  })
+}
+
+// Obtener lista de operadores disponibles
+export async function getOperators(): Promise<{ operators: Array<{ id: string; email: string; name: string; role: string }> }> {
+  return apiRequest('/auth/operators')
+}
+
 // Estadísticas de IA
 export async function getAiStats(): Promise<any> {
   const data = await apiRequest<{ ok: boolean; data: any }>('/api/ai/stats')

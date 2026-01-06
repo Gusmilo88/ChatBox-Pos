@@ -51,6 +51,45 @@ function maskPII(text) {
 function sanitizeText(text) {
     return text.trim().slice(0, 2000);
 }
+/**
+ * Detecta si un mensaje contiene palabras clave de urgencia
+ * Retorna true si el mensaje indica urgencia
+ */
+function detectUrgency(text) {
+    if (!text || typeof text !== 'string') {
+        return false;
+    }
+    const textLower = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // Normalizar acentos
+    // Palabras clave de urgencia (sin acentos para detectar variantes)
+    const urgencyKeywords = [
+        'urgente',
+        'urgent',
+        'asap',
+        'inmediato',
+        'inmediata',
+        'emergencia',
+        'emergency',
+        'importante',
+        'important',
+        'prioritario',
+        'priority',
+        'rapido',
+        'rapida',
+        'rapid',
+        'ya',
+        'ahora',
+        'now',
+        'necesito ya',
+        'necesito ahora',
+        'necesito urgente'
+    ];
+    // Verificar si alguna palabra clave está presente
+    return urgencyKeywords.some(keyword => {
+        // Buscar palabra completa (no solo substring para evitar falsos positivos)
+        const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        return regex.test(textLower);
+    });
+}
 async function listConversations(params) {
     const { query = '', from, to, page = 1, pageSize = 25, isClient, needsReply } = params;
     try {
@@ -415,9 +454,24 @@ async function simulateIncoming(request) {
             textLength: sanitizedText.length,
             via
         });
+        // Detectar urgencia en el mensaje del usuario ANTES de generar respuesta
+        const isUrgentMessage = detectUrgency(sanitizedText);
+        if (isUrgentMessage) {
+            logger_1.default.info('urgent_message_detected', {
+                conversationId,
+                phone: maskPII(normalizedPhone),
+                messagePreview: sanitizedText.substring(0, 50)
+            });
+        }
         // Generar respuesta automática usando IA (principal) o FSM (fallback)
         try {
             const botResponse = await (0, botReply_1.generateBotReply)(normalizedPhone, sanitizedText, conversationId);
+            // Verificar si la respuesta indica derivación a humano
+            const isHumanTransfer = botResponse.replies.some(reply => reply.includes('derivamos con el equipo') ||
+                reply.includes('te contactará un profesional') ||
+                reply.includes('te derivamos'));
+            // Marcar como needsReply si: mensaje es urgente O se deriva a humano
+            const shouldMarkAsNeedsReply = isUrgentMessage || isHumanTransfer;
             if (botResponse.replies && botResponse.replies.length > 0) {
                 // Encolar respuestas automáticas
                 for (const reply of botResponse.replies) {
@@ -437,15 +491,40 @@ async function simulateIncoming(request) {
                         conversationId,
                         phone: maskPII(normalizedPhone),
                         via: botResponse.via,
-                        replyLength: reply.length
+                        replyLength: reply.length,
+                        isHumanTransfer,
+                        isUrgentMessage
                     });
                 }
                 // Actualizar conversación con último mensaje del sistema
+                // Marcar como needsReply si: mensaje es urgente O se deriva a humano
                 await firebase_1.collections.conversations().doc(conversationId).update({
                     lastMessageAt: new Date(),
                     lastMessage: botResponse.replies[0],
+                    needsReply: shouldMarkAsNeedsReply,
                     updatedAt: new Date()
                 });
+                if (shouldMarkAsNeedsReply) {
+                    logger_1.default.info('conversation_marked_as_needs_reply', {
+                        conversationId,
+                        phone: maskPII(normalizedPhone),
+                        reason: isUrgentMessage ? 'urgent_keywords' : 'human_transfer'
+                    });
+                }
+            }
+            else {
+                // Si no hay respuesta del bot pero el mensaje es urgente, marcar igual
+                if (isUrgentMessage) {
+                    await firebase_1.collections.conversations().doc(conversationId).update({
+                        needsReply: true,
+                        updatedAt: new Date()
+                    });
+                    logger_1.default.info('conversation_marked_as_needs_reply', {
+                        conversationId,
+                        phone: maskPII(normalizedPhone),
+                        reason: 'urgent_keywords_no_bot_reply'
+                    });
+                }
             }
         }
         catch (error) {

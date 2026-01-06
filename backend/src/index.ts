@@ -18,6 +18,7 @@ import webhookRouter from './routes/webhook';
 import aiStatsRouter from './routes/aiStats';
 import statsRouter from './routes/stats';
 import autoRepliesRouter from './routes/autoReplies';
+import simulatorRouter from './routes/simulator';
 
 const app = express();
 
@@ -41,6 +42,7 @@ app.use('/auth', authRouter);
 
 // Simulación (pública, para testing)
 app.use('/api/simulate', simulateRouter);
+app.use('/api/simulator', simulatorRouter);
 
 // Meta WhatsApp: webhook (raw body)
 app.use('/api/webhook/whatsapp', express.raw({ type: 'application/json' }), webhookRouter);

@@ -4,7 +4,8 @@ import {
   listConversations, 
   getConversationById, 
   simulateIncoming, 
-  enqueueReply
+  enqueueReply,
+  assignConversation
 } from '../services/conversations'
 import { 
   requireApiKey, 
@@ -76,7 +77,12 @@ router.get('/',
         query: validatedParams.query ? '***' : undefined 
       })
       
-      const result = await listConversations(validatedParams)
+      // Pasar información del usuario para filtrar por assignedTo
+      const result = await listConversations({
+        ...validatedParams,
+        userEmail: req.user?.email,
+        userRole: req.user?.role
+      })
       
       logger.info('Conversations listed successfully', { 
         total: result.total,
@@ -198,6 +204,56 @@ router.post('/:id/reply',
     } catch (error) {
       const msg = (error instanceof Error) ? error.message : String(error);
       logger.error('error_sending_reply', { 
+        conversationId: req.params.id,
+        error: msg 
+      })
+      res.status(500).json({ error: 'Error interno del servidor' })
+    }
+  }
+)
+
+// POST /api/conversations/:id/assign - Asignar conversación a operador
+const assignSchema = z.object({
+  assignedTo: z.string().email().nullable(),
+  notifyClient: z.boolean().optional().default(true)
+})
+
+router.post('/:id/assign',
+  requireSession,
+  async (req, res) => {
+    try {
+      const { id } = req.params
+      
+      // Solo owners pueden asignar conversaciones
+      if (req.user?.role !== 'owner') {
+        return res.status(403).json({ error: 'Solo el administrador puede asignar conversaciones' })
+      }
+
+      const validated = assignSchema.parse(req.body)
+      
+      const result = await assignConversation(
+        id,
+        validated.assignedTo,
+        validated.notifyClient
+      )
+      
+      logger.info('conversation_assigned_via_api', {
+        conversationId: id,
+        assignedTo: validated.assignedTo,
+        assignedBy: req.user?.email
+      })
+      
+      res.json({ 
+        success: true,
+        operatorName: result.operatorName
+      })
+    } catch (error) {
+      const msg = (error instanceof Error) ? error.message : String(error);
+      if (msg === 'Conversación no encontrada') {
+        return res.status(404).json({ error: 'Conversación no encontrada' })
+      }
+      
+      logger.error('error_assigning_conversation', { 
         conversationId: req.params.id,
         error: msg 
       })

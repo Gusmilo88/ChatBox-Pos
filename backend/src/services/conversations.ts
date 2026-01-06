@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid'
 import { Timestamp } from 'firebase-admin/firestore'
 import logger from '../libs/logger'
 import { generateBotReply } from './botReply'
+import { detectDerivation } from './autoDerivation'
+import { forwardToOperator, forwardClientUpdateToOperator } from './operatorForwarding'
 import type {
   ConversationListItem,
   ConversationListResponse,
@@ -57,6 +59,49 @@ function sanitizeText(text: string): string {
   return text.trim().slice(0, 2000)
 }
 
+/**
+ * Detecta si un mensaje contiene palabras clave de urgencia
+ * Retorna true si el mensaje indica urgencia
+ */
+function detectUrgency(text: string): boolean {
+  if (!text || typeof text !== 'string') {
+    return false
+  }
+
+  const textLower = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Normalizar acentos
+  
+  // Palabras clave de urgencia (sin acentos para detectar variantes)
+  const urgencyKeywords = [
+    'urgente',
+    'urgent',
+    'asap',
+    'inmediato',
+    'inmediata',
+    'emergencia',
+    'emergency',
+    'importante',
+    'important',
+    'prioritario',
+    'priority',
+    'rapido',
+    'rapida',
+    'rapid',
+    'ya',
+    'ahora',
+    'now',
+    'necesito ya',
+    'necesito ahora',
+    'necesito urgente'
+  ]
+
+  // Verificar si alguna palabra clave está presente
+  return urgencyKeywords.some(keyword => {
+    // Buscar palabra completa (no solo substring para evitar falsos positivos)
+    const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    return regex.test(textLower)
+  })
+}
+
 export async function listConversations(params: {
   query?: string
   from?: string
@@ -65,6 +110,8 @@ export async function listConversations(params: {
   pageSize?: number
   isClient?: boolean
   needsReply?: boolean
+  userEmail?: string // Email del usuario actual (para filtrar por assignedTo)
+  userRole?: 'owner' | 'operador' // Rol del usuario (owner ve todo, operador solo sus asignados)
 }): Promise<ConversationListResponse> {
   const {
     query = '',
@@ -201,6 +248,23 @@ export async function listConversations(params: {
       })
     }
 
+    // Filtro por assignedTo según rol del usuario
+    // Si es operador, solo ver sus conversaciones asignadas
+    // Si es owner, ver todas (pero puede filtrar por assignedTo si quiere)
+    if (params.userRole === 'operador' && params.userEmail) {
+      const beforeCount = filteredDocs.length
+      filteredDocs = filteredDocs.filter(doc => {
+        const data = doc.data()
+        // Operador solo ve conversaciones asignadas a él
+        return data.assignedTo === params.userEmail
+      })
+      logger.info('Applied assignedTo filter for operador', { 
+        userEmail: params.userEmail,
+        beforeCount, 
+        afterCount: filteredDocs.length 
+      })
+    }
+
     // Calcular total después de todos los filtros
     const total = filteredDocs.length
 
@@ -278,7 +342,8 @@ export async function listConversations(params: {
         lastMessageAt: data.lastMessageAt?.toDate?.()?.toISOString() || new Date().toISOString(),
         unreadCount: data.unreadCount || 0,
         needsReply: data.needsReply || false,
-        lastMessage
+        lastMessage,
+        assignedTo: data.assignedTo || undefined
       }
       
       items.push(item)
@@ -380,7 +445,8 @@ export async function getConversationById(id: string): Promise<ConversationDetai
       name: conversationData?.name,
       isClient: conversationData?.isClient ?? false,
       needsReply: conversationData?.needsReply ?? false,
-      messages
+      messages,
+      assignedTo: conversationData?.assignedTo || undefined
     }
 
     logger.info('conversation_retrieved', {
@@ -471,6 +537,17 @@ export async function simulateIncoming(request: IncomingMessageRequest): Promise
       via
     })
 
+    // Detectar urgencia en el mensaje del usuario ANTES de generar respuesta
+    const isUrgentMessage = detectUrgency(sanitizedText);
+    
+    if (isUrgentMessage) {
+      logger.info('urgent_message_detected', {
+        conversationId,
+        phone: maskPII(normalizedPhone),
+        messagePreview: sanitizedText.substring(0, 50)
+      });
+    }
+
     // Generar respuesta automática usando IA (principal) o FSM (fallback)
     try {
       const botResponse = await generateBotReply(normalizedPhone, sanitizedText, conversationId);
@@ -481,6 +558,27 @@ export async function simulateIncoming(request: IncomingMessageRequest): Promise
         reply.includes('te contactará un profesional') ||
         reply.includes('te derivamos')
       );
+      
+      // DETECCIÓN AUTOMÁTICA DE DERIVACIÓN
+      // Analizar el mensaje del cliente para determinar a qué operador derivar
+      const derivationResult = detectDerivation(sanitizedText);
+      let shouldAutoDerive = false;
+      let derivedOperator = null;
+      
+      if (isHumanTransfer && derivationResult.shouldDerive && derivationResult.operator) {
+        shouldAutoDerive = true;
+        derivedOperator = derivationResult.operator;
+        
+        logger.info('auto_derivation_detected', {
+          conversationId,
+          operator: derivedOperator.name,
+          reason: derivationResult.reason,
+          phone: maskPII(normalizedPhone)
+        });
+      }
+      
+      // Marcar como needsReply si: mensaje es urgente O se deriva a humano
+      const shouldMarkAsNeedsReply = isUrgentMessage || isHumanTransfer;
       
       if (botResponse.replies && botResponse.replies.length > 0) {
         // Encolar respuestas automáticas
@@ -505,18 +603,102 @@ export async function simulateIncoming(request: IncomingMessageRequest): Promise
             phone: maskPII(normalizedPhone),
             via: botResponse.via,
             replyLength: reply.length,
-            isHumanTransfer
+            isHumanTransfer,
+            isUrgentMessage
           });
         }
         
+        // Si se detectó derivación automática, enviar mensaje específico al cliente
+        if (shouldAutoDerive && derivedOperator) {
+          const derivationMessage = `Te derivamos con ${derivedOperator.name}. En breve te responderá. ¡Gracias! 🙌`;
+          
+          const derivationIdempotencyKey = `derive-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          await enqueueOutbox(conversationId, normalizedPhone, derivationMessage, derivationIdempotencyKey);
+          
+          // Guardar mensaje de derivación
+          const derivationMessageId = uuidv4();
+          await collections.messages(conversationId).doc(derivationMessageId).set({
+            ts: new Date(),
+            from: 'system' as const,
+            text: derivationMessage,
+            via: 'whatsapp' as const,
+            aiSuggested: false
+          });
+          
+          // Obtener historial de mensajes para el operador
+          const messagesSnapshot = await collections.messages(conversationId)
+            .orderBy('ts', 'desc')
+            .limit(10)
+            .get();
+          
+          const messageHistory = messagesSnapshot.docs
+            .reverse()
+            .map(doc => {
+              const data = doc.data();
+              return {
+                from: data.from === 'usuario' ? 'user' as const : 'bot' as const,
+                text: data.text || '',
+                timestamp: data.ts?.toDate?.()?.toISOString() || new Date().toISOString()
+              };
+            });
+          
+          // Reenviar al operador
+          try {
+            await forwardToOperator(
+              conversationId,
+              normalizedPhone,
+              conversationData?.name || null,
+              sanitizedText,
+              derivedOperator,
+              messageHistory
+            );
+            
+            logger.info('auto_derivation_completed', {
+              conversationId,
+              operator: derivedOperator.name,
+              operatorPhone: derivedOperator.phone.replace(/\d(?=\d{4})/g, '*')
+            });
+          } catch (error) {
+            const msg = (error instanceof Error) ? error.message : String(error);
+            logger.error('error_forwarding_to_operator', {
+              conversationId,
+              operator: derivedOperator.name,
+              error: msg
+            });
+            // No fallar la conversación si falla el reenvío
+          }
+        }
+        
         // Actualizar conversación con último mensaje del sistema
-        // Si se deriva a humano, marcar como needsReply
+        // Marcar como needsReply si: mensaje es urgente O se deriva a humano
         await collections.conversations().doc(conversationId).update({
           lastMessageAt: new Date(),
           lastMessage: botResponse.replies[0],
-          needsReply: isHumanTransfer, // Marcar como necesita respuesta si se deriva a humano
+          needsReply: shouldMarkAsNeedsReply,
           updatedAt: new Date()
         });
+        
+        if (shouldMarkAsNeedsReply) {
+          logger.info('conversation_marked_as_needs_reply', {
+            conversationId,
+            phone: maskPII(normalizedPhone),
+            reason: isUrgentMessage ? 'urgent_keywords' : 'human_transfer'
+          });
+        }
+      } else {
+        // Si no hay respuesta del bot pero el mensaje es urgente, marcar igual
+        if (isUrgentMessage) {
+          await collections.conversations().doc(conversationId).update({
+            needsReply: true,
+            updatedAt: new Date()
+          });
+          
+          logger.info('conversation_marked_as_needs_reply', {
+            conversationId,
+            phone: maskPII(normalizedPhone),
+            reason: 'urgent_keywords_no_bot_reply'
+          });
+        }
       }
     } catch (error) {
       const msg = (error instanceof Error) ? error.message : String(error);
@@ -715,6 +897,107 @@ export async function markMessageDelivery(
     logger.error('error_updating_delivery_status', {
       conversationId,
       messageId,
+      error: msg
+    })
+    throw error
+  }
+}
+
+/**
+ * Asignar una conversación a un operador (secretaria)
+ * @param conversationId ID de la conversación
+ * @param assignedTo Email del operador a asignar (null para desasignar)
+ * @param notifyClient Si enviar mensaje automático al cliente
+ * @returns Nombre del operador asignado (para el mensaje)
+ */
+export async function assignConversation(
+  conversationId: string,
+  assignedTo: string | null,
+  notifyClient: boolean = true
+): Promise<{ operatorName: string | null }> {
+  try {
+    const conversationRef = collections.conversations().doc(conversationId)
+    const conversationDoc = await conversationRef.get()
+    
+    if (!conversationDoc.exists) {
+      throw new Error('Conversación no encontrada')
+    }
+
+    const conversationData = conversationDoc.data()
+    const phone = conversationData?.phone
+
+    if (!phone) {
+      throw new Error('La conversación no tiene teléfono asociado')
+    }
+
+    // Obtener nombre del operador si se asigna
+    let operatorName: string | null = null
+    if (assignedTo) {
+      try {
+        // Buscar admin por email para obtener nombre (si existe campo name)
+        const adminSnapshot = await collections.admins()
+          .where('email', '==', assignedTo.toLowerCase().trim())
+          .limit(1)
+          .get()
+        
+        if (!adminSnapshot.empty) {
+          const adminData = adminSnapshot.docs[0].data()
+          // Si hay campo name, usarlo; sino usar email sin dominio
+          operatorName = adminData.name || assignedTo.split('@')[0]
+        } else {
+          // Si no existe en admins, usar email sin dominio
+          operatorName = assignedTo.split('@')[0]
+        }
+      } catch (error) {
+        // Si falla, usar email sin dominio
+        operatorName = assignedTo.split('@')[0]
+      }
+    }
+
+    // Actualizar conversación
+    await conversationRef.update({
+      assignedTo: assignedTo || null,
+      updatedAt: new Date()
+    })
+
+    logger.info('conversation_assigned', {
+      conversationId,
+      assignedTo: assignedTo || 'null',
+      operatorName,
+      notifyClient
+    })
+
+    // Enviar mensaje automático al cliente si se solicita
+    if (notifyClient && assignedTo && operatorName) {
+      const notificationMessage = `Te derivamos con ${operatorName}. En breve te contactará para ayudarte. ¡Gracias! 🙌`
+      
+      // Agregar mensaje del sistema
+      const messageId = uuidv4()
+      const now = new Date()
+      await conversationRef.collection('messages').doc(messageId).set({
+        ts: now,
+        from: 'sistema',
+        text: notificationMessage,
+        via: 'manual',
+        aiSuggested: false
+      })
+
+      // Encolar mensaje para envío
+      await enqueueOutbox(conversationId, phone, notificationMessage)
+
+      logger.info('assignment_notification_sent', {
+        conversationId,
+        phone: maskPII(phone),
+        operatorName
+      })
+    }
+
+    return { operatorName }
+  } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
+    logger.error('error_assigning_conversation', {
+      conversationId,
+      assignedTo,
       error: msg
     })
     throw error

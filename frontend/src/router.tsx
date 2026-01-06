@@ -3,6 +3,7 @@ import { ConversationsPage } from '@/pages/ConversationsPage'
 import { ConversationDetailPage } from '@/pages/ConversationDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { AutoRepliesPage } from '@/pages/AutoRepliesPage'
+import { SimulatorPage } from '@/pages/SimulatorPage'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import TestChat from './TestChat'
 
@@ -14,6 +15,10 @@ export const router = createBrowserRouter([
   {
     path: '/test',
     element: <TestChat />,
+  },
+  {
+    path: '/simulator',
+    element: <SimulatorPage />,
   },
   {
     path: '/',
