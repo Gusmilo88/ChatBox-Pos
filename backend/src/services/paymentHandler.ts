@@ -6,6 +6,7 @@
 import logger from '../libs/logger'
 import { getClienteByCuit } from './clientsRepo'
 import { limpiarCuit } from '../utils/cuit'
+import { REPLIES, maskCuit } from './replies'
 
 /**
  * Resultado del handler de pago
@@ -68,10 +69,13 @@ export async function handlePayment(
   try {
     // A) Si NO dio CUIT, pedirlo
     if (!cuitInput || cuitInput.trim().length === 0) {
-      logger.info('payment_handler_needs_cuit', { paymentType })
+      logger.info('payment_handler_needs_cuit', { 
+        paymentType,
+        cuit: '***'
+      })
       return {
         success: false,
-        message: 'Perfecto 👌 Pasame tu CUIT (solo números) y te digo el monto y cómo pagarlo.',
+        message: REPLIES.askCuit,
         needsCuit: true
       }
     }
@@ -79,10 +83,12 @@ export async function handlePayment(
     // B) Validar CUIT
     const cuitLimpio = limpiarCuit(cuitInput)
     if (cuitLimpio.length !== 11) {
-      logger.info('payment_handler_invalid_cuit', { cuitInput, cuitLimpio })
+      logger.info('payment_handler_invalid_cuit', { 
+        cuit: maskCuit(cuitInput)
+      })
       return {
         success: false,
-        message: 'Dale, pasame el CUIT completo (11 números).',
+        message: REPLIES.cuitInvalid,
         needsCuit: true
       }
     }
@@ -92,21 +98,47 @@ export async function handlePayment(
 
     // D) Si NO EXISTE cliente
     if (!cliente || !cliente.exists) {
-      logger.info('payment_handler_cliente_not_found', { cuit: cuitLimpio })
+      logger.info('payment_handler_cliente_not_found', { 
+        cuit: maskCuit(cuitLimpio)
+      })
       return {
         success: false,
-        message: 'No encuentro ese CUIT en nuestra base. ¿Querés que Iván te contacte para darte el alta?',
+        message: REPLIES.cuitNotFound,
         needsCuit: false,
         cuit: cuitLimpio
       }
     }
 
-    // E) Si EXISTE cliente
+    // E) Si EXISTE cliente y es pago de HONORARIOS (respuesta específica)
     const clienteData = cliente.data!
-    const nombre = clienteData.nombre || 'cliente'
+    const nombre = clienteData.nombre || undefined
 
-    // 1) Saludo con nombre
-    let message = `Listo, ${nombre} ✅ ya encontré tus datos.\n\n`
+    if (paymentType === 'honorarios') {
+      // Respuesta PREMIUM específica para honorarios (sin monto, sin inventar datos)
+      const message = REPLIES.paymentHonorarios(nombre)
+      
+      logger.info('payment_handler_honorarios_success', {
+        cuit: maskCuit(cuitLimpio),
+        nombre: nombre ? '***' : 'no_name',
+        paymentType
+      })
+      
+      return {
+        success: true,
+        message,
+        needsCuit: false,
+        cuit: cuitLimpio,
+        cliente: {
+          nombre: nombre || 'cliente',
+          deuda_honorarios: clienteData.deuda_honorarios,
+          monto_monotributo: clienteData.monto_monotributo,
+          deuda: clienteData.deuda
+        }
+      }
+    }
+
+    // Para monotributo o deuda genérica, mantener flujo original
+    let message = `Listo, ${nombre || 'cliente'} ✅ ya encontré tus datos.\n\n`
 
     // 2) Determinar monto
     const monto = getMontoForPaymentType(clienteData, paymentType)
@@ -131,8 +163,8 @@ export async function handlePayment(
     message += `Si querés, cuando lo hagas avisame y lo verificamos 👋`
 
     logger.info('payment_handler_success', {
-      cuit: cuitLimpio,
-      nombre,
+      cuit: maskCuit(cuitLimpio),
+      nombre: nombre ? '***' : 'no_name',
       paymentType,
       monto
     })
@@ -142,12 +174,12 @@ export async function handlePayment(
       message,
       needsCuit: false,
       cuit: cuitLimpio,
-      cliente: {
-        nombre,
-        deuda_honorarios: clienteData.deuda_honorarios,
-        monto_monotributo: clienteData.monto_monotributo,
-        deuda: clienteData.deuda
-      }
+        cliente: {
+          nombre: nombre || 'cliente',
+          deuda_honorarios: clienteData.deuda_honorarios,
+          monto_monotributo: clienteData.monto_monotributo,
+          deuda: clienteData.deuda
+        }
     }
   } catch (error) {
     const errorMsg = (error instanceof Error) ? error.message : String(error)

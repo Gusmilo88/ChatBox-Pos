@@ -54,6 +54,22 @@ export async function performHandoff(
       throw new Error(`Operador ${operatorName} no encontrado`)
     }
 
+    // VALIDACIÓN CRÍTICA: Verificar que operatorPhone no esté vacío
+    if (!operator.phone || operator.phone.trim() === '') {
+      logger.warn('operator_missing_phone', {
+        conversationId,
+        assignedTo,
+        operatorName: operator.name
+      })
+      // NO hacer handoff, NO setear handoffTo, NO silenciar IA
+      // Limpiar handoffTo si estaba seteado
+      await collections.conversations().doc(conversationId).update({
+        handoffTo: null,
+        updatedAt: new Date()
+      })
+      throw new Error(`Operador ${operatorName} no tiene teléfono configurado`)
+    }
+
     // Enviar mensaje al cliente indicando el responsable
     const handoffMessage = getHandoffMessage(assignedTo)
     await enqueueOutbox(conversationId, clientPhone, handoffMessage)

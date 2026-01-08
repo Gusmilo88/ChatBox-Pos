@@ -46,6 +46,8 @@ const autoReplies_1 = require("./autoReplies");
 const intentRouter_1 = require("./intentRouter");
 const paymentHandler_1 = require("./paymentHandler");
 const handoffManager_1 = require("./handoffManager");
+const topicGuard_1 = require("./topicGuard");
+const replies_1 = require("./replies");
 const logger_1 = __importDefault(require("../libs/logger"));
 const env_1 = __importDefault(require("../config/env"));
 // Instancia global del FSM manager
@@ -84,19 +86,72 @@ async function generateBotReply(phone, text, conversationId) {
         if (conversationId) {
             const handoffActive = await (0, handoffManager_1.isHandoffActive)(conversationId);
             if (handoffActive) {
-                // Si hay handoff activo, no responder automáticamente
-                // El operador responderá manualmente
-                logger_1.default.info('handoff_active_silencing_ia', { conversationId });
-                return {
-                    replies: [],
-                    via: 'handoff'
-                };
+                // Verificar si handoffTo está seteado pero no hay operatorPhone válido
+                try {
+                    const conversationDoc = await firebase_1.collections.conversations().doc(conversationId).get();
+                    if (conversationDoc.exists) {
+                        const data = conversationDoc.data();
+                        const assignedToPhone = data?.assignedTo;
+                        const handoffTo = data?.handoffTo;
+                        // Si hay handoffTo pero no hay assignedTo (operatorPhone), limpiar
+                        if (handoffTo && (!assignedToPhone || assignedToPhone.trim() === '')) {
+                            logger_1.default.warn('handoff_to_without_phone_cleaning', {
+                                conversationId,
+                                handoffTo,
+                                phone: (0, replies_1.maskPhone)(normalizedPhone)
+                            });
+                            await firebase_1.collections.conversations().doc(conversationId).update({
+                                handoffTo: null,
+                                handoffStatus: 'IA_ACTIVE',
+                                updatedAt: new Date()
+                            });
+                            // Continuar con flujo normal (IA)
+                        }
+                        else {
+                            // Verificar si el usuario escribe "menu" o "inicio" para resetear
+                            const textLower = text.toLowerCase().trim();
+                            if (textLower === 'menu' || textLower === 'inicio' || textLower === 'volver') {
+                                // Resetear handoff
+                                await firebase_1.collections.conversations().doc(conversationId).update({
+                                    handoffTo: null,
+                                    handoffStatus: 'IA_ACTIVE',
+                                    updatedAt: new Date()
+                                });
+                                // Continuar con flujo normal
+                            }
+                            else {
+                                // Si hay handoff activo válido, no responder automáticamente
+                                // El operador responderá manualmente
+                                logger_1.default.info('handoff_active_silencing_ia', {
+                                    conversationId,
+                                    phone: (0, replies_1.maskPhone)(normalizedPhone)
+                                });
+                                return {
+                                    replies: [],
+                                    via: 'handoff'
+                                };
+                            }
+                        }
+                    }
+                }
+                catch (error) {
+                    logger_1.default.error('error_checking_handoff_state', {
+                        conversationId,
+                        error: error?.message
+                    });
+                    // Continuar con flujo normal si falla
+                }
             }
         }
-        // 1. Verificar si es cliente y obtener CUIT
+        // 1. Obtener estado de conversación y CUIT
         let isClient = false;
         let cuit;
         let nombre;
+        let role = null;
+        let offTopicStrikes = 0;
+        let handoffTo = null;
+        let initialGreetingShown = false;
+        let isFirstMessage = false;
         // Intentar obtener información del cliente desde la conversación
         if (conversationId) {
             try {
@@ -104,35 +159,256 @@ async function generateBotReply(phone, text, conversationId) {
                 if (conversationDoc.exists) {
                     const data = conversationDoc.data();
                     isClient = data?.isClient || false;
-                    // Si hay CUIT en la conversación, intentar obtener nombre
-                    if (data?.cuit) {
-                        cuit = data.cuit;
-                        if (cuit) {
-                            const cliente = await (0, clientsRepo_1.getDoc)(cuit);
-                            if (cliente) {
-                                nombre = cliente.nombre;
-                            }
+                    role = data?.role || (isClient ? 'cliente' : 'no_cliente');
+                    cuit = data?.cuit || undefined;
+                    nombre = data?.displayName || undefined;
+                    offTopicStrikes = data?.offTopicStrikes || 0;
+                    handoffTo = data?.handoffTo || null;
+                    initialGreetingShown = data?.initialGreetingShown || false;
+                    // Verificar si es el primer mensaje (no hay mensajes del bot aún)
+                    try {
+                        const botMessagesSnapshot = await firebase_1.collections.messages(conversationId)
+                            .where('from', 'in', ['bot', 'system', 'sistema'])
+                            .limit(1)
+                            .get();
+                        isFirstMessage = botMessagesSnapshot.empty;
+                    }
+                    catch (error) {
+                        // Si falla, asumir que no es el primero
+                        logger_1.default.debug('Error verificando primer mensaje', { error: error?.message });
+                    }
+                    // Si hay CUIT pero no nombre, obtenerlo
+                    if (cuit && !nombre) {
+                        const cliente = await (0, clientsRepo_1.getDoc)(cuit);
+                        if (cliente) {
+                            nombre = cliente.nombre;
+                        }
+                    }
+                }
+                else {
+                    // Si no existe conversación, es el primer mensaje
+                    isFirstMessage = true;
+                }
+            }
+            catch (error) {
+                logger_1.default.debug('Error obteniendo datos de conversación', { error: error?.message });
+                // Si falla, asumir que es el primer mensaje
+                isFirstMessage = true;
+            }
+        }
+        else {
+            // Si no hay conversationId, es el primer mensaje
+            isFirstMessage = true;
+        }
+        // 1.0. GUARD: Mostrar saludo inicial PREMIUM solo una vez
+        if (isFirstMessage && !initialGreetingShown && !(0, topicGuard_1.isOffTopic)(text)) {
+            const hasRoleOrCuit = !!(role || cuit);
+            const greetingMessage = replies_1.REPLIES.greetingInitial(hasRoleOrCuit);
+            // Guardar flag en conversación
+            if (conversationId) {
+                await firebase_1.collections.conversations().doc(conversationId).update({
+                    initialGreetingShown: true,
+                    updatedAt: new Date()
+                });
+            }
+            logger_1.default.info('initial_greeting_shown', {
+                conversationId,
+                phone: (0, replies_1.maskPhone)(normalizedPhone),
+                hasRoleOrCuit
+            });
+            return {
+                replies: [greetingMessage],
+                via: 'fsm'
+            };
+        }
+        // 1.1. Extraer CUIT del texto si no está en conversación
+        if (!cuit) {
+            const extractedCuit = (0, topicGuard_1.extractCUIT)(text);
+            if (extractedCuit) {
+                cuit = extractedCuit;
+                // Validar y buscar cliente
+                const clienteResult = await (0, clientsRepo_1.getClienteByCuit)(extractedCuit);
+                if (clienteResult.exists && clienteResult.data) {
+                    isClient = true;
+                    role = 'cliente';
+                    nombre = clienteResult.data.nombre;
+                    // Guardar en conversación
+                    if (conversationId) {
+                        await firebase_1.collections.conversations().doc(conversationId).update({
+                            cuit: extractedCuit,
+                            role: 'cliente',
+                            displayName: nombre,
+                            isClient: true,
+                            updatedAt: new Date()
+                        });
+                        logger_1.default.info('cuit_extracted_and_client_identified', {
+                            conversationId,
+                            cuit: (0, replies_1.maskCuit)(extractedCuit),
+                            phone: (0, replies_1.maskPhone)(normalizedPhone),
+                            hasName: !!nombre
+                        });
+                    }
+                }
+                else {
+                    role = 'no_cliente';
+                    // Guardar en conversación
+                    if (conversationId) {
+                        await firebase_1.collections.conversations().doc(conversationId).update({
+                            cuit: extractedCuit,
+                            role: 'no_cliente',
+                            isClient: false,
+                            updatedAt: new Date()
+                        });
+                        logger_1.default.info('cuit_extracted_not_client', {
+                            conversationId,
+                            cuit: (0, replies_1.maskCuit)(extractedCuit),
+                            phone: (0, replies_1.maskPhone)(normalizedPhone)
+                        });
+                    }
+                }
+            }
+        }
+        // 1.2. GUARD: Verificar off-topic ANTES de procesar
+        const isOffTopicMessage = (0, topicGuard_1.isOffTopic)(text);
+        if (isOffTopicMessage) {
+            // Verificar si está muted (después de 2 strikes)
+            if (conversationId) {
+                const conversationDoc = await firebase_1.collections.conversations().doc(conversationId).get();
+                if (conversationDoc.exists) {
+                    const data = conversationDoc.data();
+                    const mutedUntil = data?.mutedUntil;
+                    if (mutedUntil) {
+                        const mutedDate = mutedUntil.toDate ? mutedUntil.toDate() : new Date(mutedUntil);
+                        if (mutedDate > new Date()) {
+                            // Está muted, no responder
+                            logger_1.default.info('off_topic_muted', {
+                                conversationId,
+                                mutedUntil: mutedDate.toISOString(),
+                                textPreview: text.substring(0, 50)
+                            });
+                            return {
+                                replies: [],
+                                via: 'fsm'
+                            };
                         }
                     }
                 }
             }
-            catch (error) {
-                logger_1.default.debug('Error obteniendo datos de conversación para IA', { error: error?.message });
+            offTopicStrikes += 1;
+            // Calcular mutedUntil si es 2da vez o más (mute por 30 minutos)
+            const mutedUntil = offTopicStrikes >= 2
+                ? new Date(Date.now() + 30 * 60 * 1000) // 30 minutos
+                : null;
+            // Guardar strikes y mutedUntil en conversación
+            if (conversationId) {
+                const updateData = {
+                    offTopicStrikes,
+                    updatedAt: new Date()
+                };
+                if (mutedUntil) {
+                    updateData.mutedUntil = mutedUntil;
+                }
+                await firebase_1.collections.conversations().doc(conversationId).update(updateData);
+            }
+            // 1ra vez: respuesta amable
+            if (offTopicStrikes === 1) {
+                logger_1.default.info('off_topic_first_strike', {
+                    conversationId,
+                    phone: (0, replies_1.maskPhone)(normalizedPhone),
+                    textPreview: text.substring(0, 50)
+                });
+                return {
+                    replies: [replies_1.REPLIES.offTopicFirst],
+                    via: 'fsm'
+                };
+            }
+            // 2da vez o más: cierre amable, NO llamar IA
+            logger_1.default.info('off_topic_second_strike_closing', {
+                conversationId,
+                strikes: offTopicStrikes,
+                phone: (0, replies_1.maskPhone)(normalizedPhone),
+                mutedUntil: mutedUntil?.toISOString()
+            });
+            return {
+                replies: [replies_1.REPLIES.offTopicSecond],
+                via: 'fsm'
+            };
+        }
+        // 1.3. GUARD: Verificar si debe pedir CUIT
+        if (!cuit && !role) {
+            // Contar mensajes del usuario en la conversación
+            let messageCount = 0;
+            if (conversationId) {
+                try {
+                    const messagesSnapshot = await firebase_1.collections.messages(conversationId)
+                        .where('from', '==', 'usuario')
+                        .get();
+                    messageCount = messagesSnapshot.size;
+                }
+                catch (error) {
+                    logger_1.default.debug('Error contando mensajes para CUIT', { error: error?.message });
+                }
+            }
+            const shouldAsk = (0, topicGuard_1.shouldAskForCUIT)({ role, cuit }, text, messageCount);
+            if (shouldAsk) {
+                logger_1.default.info('should_ask_for_cuit', {
+                    conversationId,
+                    messageCount,
+                    phone: (0, replies_1.maskPhone)(normalizedPhone),
+                    textPreview: text.substring(0, 50)
+                });
+                return {
+                    replies: [replies_1.REPLIES.askCuit],
+                    via: 'fsm'
+                };
             }
         }
-        // Si no hay conversación, intentar buscar por CUIT en el texto
-        if (!isClient && !cuit) {
-            // Buscar CUIT en el texto (formato XX-XXXXXXXX-X o solo números)
-            const cuitMatch = text.match(/\b\d{2}[-]?\d{8}[-]?\d{1}\b/);
-            if (cuitMatch) {
-                const foundCuit = cuitMatch[0].replace(/\D/g, '');
-                if (await (0, clientsRepo_1.existsByCuit)(foundCuit)) {
-                    isClient = true;
-                    cuit = foundCuit;
-                    const cliente = await (0, clientsRepo_1.getDoc)(foundCuit);
-                    if (cliente) {
-                        nombre = cliente.nombre;
-                    }
+        // 1.4. GUARD: Routing por keywords (derivación a staff)
+        // Solo hacer handoff si hay match claro (menciona nombre o keywords fuertes)
+        const staffRouting = (0, topicGuard_1.routeToStaff)(text);
+        if (staffRouting.staff && conversationId) {
+            // Validar que el motivo sea válido (no default_ivan ni no_match)
+            const validReasons = ['mentioned_directly', 'keyword_match'];
+            if (!validReasons.includes(staffRouting.reason)) {
+                // No hacer handoff si no hay match claro
+                logger_1.default.debug('staff_routing_skipped_invalid_reason', {
+                    conversationId,
+                    reason: staffRouting.reason,
+                    phone: (0, replies_1.maskPhone)(normalizedPhone)
+                });
+            }
+            else {
+                const staffName = (0, topicGuard_1.getStaffName)(staffRouting.staff);
+                logger_1.default.info('staff_routing_detected', {
+                    conversationId,
+                    staff: staffRouting.staff,
+                    reason: staffRouting.reason,
+                    phone: (0, replies_1.maskPhone)(normalizedPhone),
+                    textPreview: text.substring(0, 50)
+                });
+                // Realizar handoff (validará operatorPhone internamente)
+                try {
+                    const conversationDoc = await firebase_1.collections.conversations().doc(conversationId).get();
+                    const conversationData = conversationDoc.exists ? conversationDoc.data() : null;
+                    await (0, handoffManager_1.performHandoff)(conversationId, normalizedPhone, conversationData?.name || nombre || null, text, staffRouting.staff);
+                    // Solo guardar handoffTo si performHandoff fue exitoso
+                    await firebase_1.collections.conversations().doc(conversationId).update({
+                        handoffTo: staffRouting.staff,
+                        updatedAt: new Date()
+                    });
+                    return {
+                        replies: [replies_1.REPLIES.handoffTo(staffName)],
+                        via: 'handoff'
+                    };
+                }
+                catch (error) {
+                    // Si falla por falta de operatorPhone, continuar con flujo normal (IA)
+                    logger_1.default.warn('error_performing_staff_handoff_continuing', {
+                        error: error?.message,
+                        phone: (0, replies_1.maskPhone)(normalizedPhone),
+                        staff: staffRouting.staff
+                    });
+                    // NO setear handoffTo, continuar con flujo normal
                 }
             }
         }
@@ -152,8 +428,9 @@ async function generateBotReply(phone, text, conversationId) {
             }
             if (paymentResult.success) {
                 logger_1.default.info('payment_handler_success', {
-                    phone: normalizedPhone,
+                    phone: (0, replies_1.maskPhone)(normalizedPhone),
                     conversationId,
+                    cuit: cuit ? (0, replies_1.maskCuit)(cuit) : undefined,
                     paymentType: routing.paymentType
                 });
                 return {
@@ -243,14 +520,34 @@ async function generateBotReply(phone, text, conversationId) {
             };
         }
         // 2.6. Fallback mínimo: si intentRouter devolvió HANDOFF pero no hay conversationId
-        // (handoff no se ejecutó) y la IA está desactivada, usar mensaje default del FSM
+        // (handoff no se ejecutó) y la IA está desactivada, usar saludo inicial o mensaje default
         const aiAvailable = await (0, aiCostTracker_1.canUseAi)();
         const handoffRequestedButNoConversation = routing.action === 'HANDOFF' && !conversationId;
         if (handoffRequestedButNoConversation && (!aiAvailable || !env_1.default.openaiApiKey)) {
-            // Usar el mensaje default del FSM (START) para evitar silencio
+            // Si no se mostró el saludo inicial, mostrarlo
+            if (!initialGreetingShown) {
+                const hasRoleOrCuit = !!(role || cuit);
+                const greetingMessage = replies_1.REPLIES.greetingInitial(hasRoleOrCuit);
+                if (conversationId) {
+                    await firebase_1.collections.conversations().doc(conversationId).update({
+                        initialGreetingShown: true,
+                        updatedAt: new Date()
+                    });
+                }
+                logger_1.default.info('fallback_initial_greeting', {
+                    phone: (0, replies_1.maskPhone)(normalizedPhone),
+                    conversationId,
+                    hasRoleOrCuit
+                });
+                return {
+                    replies: [greetingMessage],
+                    via: 'fsm'
+                };
+            }
+            // Si ya se mostró, usar mensaje default del FSM
             const { FSMState, STATE_TEXTS } = await Promise.resolve().then(() => __importStar(require('../fsm/states')));
             logger_1.default.info('fallback_default_message_no_ia', {
-                phone: normalizedPhone,
+                phone: (0, replies_1.maskPhone)(normalizedPhone),
                 conversationId,
                 routingAction: routing.action,
                 textPreview: text.substring(0, 50)
@@ -260,11 +557,12 @@ async function generateBotReply(phone, text, conversationId) {
                 via: 'fsm'
             };
         }
-        // 3. Intentar usar IA primero (si está disponible y no se superó el límite)
-        if (aiAvailable && env_1.default.openaiApiKey) {
+        // 3. Intentar usar IA SOLO si es contable-related (ya pasó el guard de off-topic)
+        // La IA solo se llama si el mensaje es contable-related (no off-topic)
+        if (aiAvailable && env_1.default.openaiApiKey && !isOffTopicMessage) {
             try {
                 const aiContext = {
-                    role: isClient ? 'cliente' : 'no_cliente',
+                    role: role || (isClient ? 'cliente' : 'no_cliente'),
                     cuit,
                     nombre,
                     lastUserText: text,
@@ -276,6 +574,7 @@ async function generateBotReply(phone, text, conversationId) {
                     phone: normalizedPhone,
                     conversationId,
                     isClient,
+                    role,
                     responseLength: aiResponse.length
                 });
                 return {
@@ -293,17 +592,26 @@ async function generateBotReply(phone, text, conversationId) {
             }
         }
         else {
-            logger_1.default.info('IA no disponible, usando FSM', {
-                phone: normalizedPhone,
-                aiAvailable,
-                hasApiKey: !!env_1.default.openaiApiKey
-            });
+            if (isOffTopicMessage) {
+                logger_1.default.info('IA bloqueada: mensaje off-topic', {
+                    phone: normalizedPhone,
+                    strikes: offTopicStrikes
+                });
+            }
+            else {
+                logger_1.default.info('IA no disponible, usando FSM', {
+                    phone: normalizedPhone,
+                    aiAvailable,
+                    hasApiKey: !!env_1.default.openaiApiKey
+                });
+            }
         }
         // 4. Fallback a FSM
         const fsm = getFSMManager();
         const fsmResult = await fsm.processMessage(normalizedPhone, text);
         logger_1.default.info('Respuesta generada por FSM', {
-            phone: normalizedPhone,
+            phone: (0, replies_1.maskPhone)(normalizedPhone),
+            conversationId,
             repliesCount: fsmResult.replies.length
         });
         return {
@@ -314,7 +622,8 @@ async function generateBotReply(phone, text, conversationId) {
     catch (error) {
         const msg = error?.message ?? String(error);
         logger_1.default.error('Error generando respuesta del bot', {
-            phone: normalizedPhone,
+            phone: (0, replies_1.maskPhone)(normalizedPhone),
+            conversationId,
             error: msg
         });
         // Fallback de emergencia

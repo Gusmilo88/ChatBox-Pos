@@ -87,6 +87,7 @@ const OPERATOR_KEYWORDS = {
 
 /**
  * Palabras clave para pagos
+ * IMPORTANTE: honorarios solo se activa si dice "honorarios" explícitamente
  */
 const PAYMENT_KEYWORDS = {
   honorarios: [
@@ -95,7 +96,11 @@ const PAYMENT_KEYWORDS = {
     'pago honorarios',
     'deuda honorarios',
     'debo honorarios',
-    'adeudo honorarios'
+    'adeudo honorarios',
+    'pagar mis honorarios',
+    'pago de honorarios',
+    'deuda de honorarios'
+    // NO incluir: "pago", "factura", "deuda" genéricos
   ],
   monotributo: [
     'pagar monotributo',
@@ -311,17 +316,17 @@ export function routeIntent(
   // Si hay duda entre Elina y Belén, hacer 1 pregunta
   // (esto se maneja en el handler, no aquí)
 
-  // Por defecto, derivar a Iván
-  logger.info('intent_routing_default', {
+  // NO hacer handoff por defecto - dejar que IA o FSM manejen
+  logger.info('intent_routing_no_action', {
     textPreview: text.substring(0, 50)
   })
 
   return {
-    action: 'HANDOFF',
-    assignedTo: 'ivan',
-    needsCuit: false,
+    action: 'AUTO_RESOLVE',
+    assignedTo: 'IA',
+    needsCuit: !hasCuit,
     paymentType: null,
-    intent: 'handoff_default_ivan'
+    intent: 'no_specific_intent'
   }
 }
 
