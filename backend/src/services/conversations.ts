@@ -831,15 +831,19 @@ export async function enqueueOutbox(
     const outboxId = uuidv4()
     const now = new Date()
 
+    // CONTRATO UNIFICADO: Siempre usar phone, status:'pending', tries:0
     const outboxData = {
       id: outboxId,
       conversationId,
-      phone: normalizePhone(phone),
+      phone: normalizePhone(phone), // SIEMPRE 'phone' (NO 'to')
       text: sanitizeText(text),
       createdAt: now,
-      status: 'pending',
-      tries: 0,
-      idempotencyKey
+      status: 'pending' as const, // SIEMPRE 'pending' al crear
+      tries: 0, // SIEMPRE 0 al crear
+      idempotencyKey: idempotencyKey || undefined,
+      error: null,
+      nextAttemptAt: null,
+      sentAt: null
     }
 
     await collections.outbox().doc(outboxId).set(outboxData)

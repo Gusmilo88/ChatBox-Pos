@@ -718,15 +718,19 @@ async function enqueueOutbox(conversationId, phone, text, idempotencyKey) {
     try {
         const outboxId = (0, uuid_1.v4)();
         const now = new Date();
+        // CONTRATO UNIFICADO: Siempre usar phone, status:'pending', tries:0
         const outboxData = {
             id: outboxId,
             conversationId,
-            phone: normalizePhone(phone),
+            phone: normalizePhone(phone), // SIEMPRE 'phone' (NO 'to')
             text: sanitizeText(text),
             createdAt: now,
-            status: 'pending',
-            tries: 0,
-            idempotencyKey
+            status: 'pending', // SIEMPRE 'pending' al crear
+            tries: 0, // SIEMPRE 0 al crear
+            idempotencyKey: idempotencyKey || undefined,
+            error: null,
+            nextAttemptAt: null,
+            sentAt: null
         };
         await firebase_1.collections.outbox().doc(outboxId).set(outboxData);
         logger_1.default.info('message_enqueued', {
