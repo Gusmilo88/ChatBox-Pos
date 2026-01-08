@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -10,6 +43,9 @@ const aiCostTracker_1 = require("./aiCostTracker");
 const clientsRepo_1 = require("./clientsRepo");
 const firebase_1 = require("../firebase");
 const autoReplies_1 = require("./autoReplies");
+const intentRouter_1 = require("./intentRouter");
+const paymentHandler_1 = require("./paymentHandler");
+const handoffManager_1 = require("./handoffManager");
 const logger_1 = __importDefault(require("../libs/logger"));
 const env_1 = __importDefault(require("../config/env"));
 // Instancia global del FSM manager
@@ -39,12 +75,25 @@ function normalizePhone(phone) {
     return cleaned;
 }
 /**
- * Genera una respuesta del bot usando IA como principal y FSM como fallback
+ * Genera una respuesta del bot usando routing inteligente, pagos, handoff, IA y FSM
  */
 async function generateBotReply(phone, text, conversationId) {
     const normalizedPhone = normalizePhone(phone);
     try {
-        // 1. Verificar si es cliente
+        // 0. Verificar si hay handoff activo (si hay, silenciar IA hasta HANDOFF_CLOSED)
+        if (conversationId) {
+            const handoffActive = await (0, handoffManager_1.isHandoffActive)(conversationId);
+            if (handoffActive) {
+                // Si hay handoff activo, no responder automáticamente
+                // El operador responderá manualmente
+                logger_1.default.info('handoff_active_silencing_ia', { conversationId });
+                return {
+                    replies: [],
+                    via: 'handoff'
+                };
+            }
+        }
+        // 1. Verificar si es cliente y obtener CUIT
         let isClient = false;
         let cuit;
         let nombre;
@@ -87,6 +136,72 @@ async function generateBotReply(phone, text, conversationId) {
                 }
             }
         }
+        // 2. Routing por intención
+        const routing = (0, intentRouter_1.routeIntent)(text, !!cuit);
+        // 3. Si es un pago, manejar con paymentHandler
+        if (routing.paymentType && routing.action === 'AUTO_RESOLVE') {
+            let paymentResult;
+            // Si es deuda_generica, preguntar aclaratoria una vez
+            if (routing.paymentType === 'deuda_generica') {
+                // TODO: Verificar si ya se preguntó (usar session/conversation state)
+                // Por ahora, preguntar siempre
+                paymentResult = (0, paymentHandler_1.askPaymentTypeClarification)();
+            }
+            else {
+                paymentResult = await (0, paymentHandler_1.handlePayment)(text, cuit || undefined, routing.paymentType);
+            }
+            if (paymentResult.success) {
+                logger_1.default.info('payment_handler_success', {
+                    phone: normalizedPhone,
+                    conversationId,
+                    paymentType: routing.paymentType
+                });
+                return {
+                    replies: [paymentResult.message],
+                    via: 'payment'
+                };
+            }
+            else {
+                // Si necesita CUIT o no encontró cliente, devolver mensaje
+                if (paymentResult.needsCuit || !paymentResult.cliente) {
+                    return {
+                        replies: [paymentResult.message],
+                        via: 'payment'
+                    };
+                }
+                // Si no encontró cliente, derivar a Iván
+                if (!paymentResult.cliente && conversationId) {
+                    try {
+                        const conversationDoc = await firebase_1.collections.conversations().doc(conversationId).get();
+                        const conversationData = conversationDoc.exists ? conversationDoc.data() : null;
+                        await (0, handoffManager_1.performHandoff)(conversationId, normalizedPhone, conversationData?.name || null, text, 'ivan');
+                        return {
+                            replies: [paymentResult.message],
+                            via: 'handoff'
+                        };
+                    }
+                    catch (error) {
+                        logger_1.default.error('error_performing_handoff_after_payment', { error: error?.message });
+                    }
+                }
+            }
+        }
+        // 4. Si es handoff, realizar derivación
+        if (routing.action === 'HANDOFF' && conversationId) {
+            try {
+                const conversationDoc = await firebase_1.collections.conversations().doc(conversationId).get();
+                const conversationData = conversationDoc.exists ? conversationDoc.data() : null;
+                await (0, handoffManager_1.performHandoff)(conversationId, normalizedPhone, conversationData?.name || nombre || null, text, routing.assignedTo);
+                return {
+                    replies: [], // El mensaje ya se envió en performHandoff
+                    via: 'handoff'
+                };
+            }
+            catch (error) {
+                logger_1.default.error('error_performing_handoff', { error: error?.message });
+                // Continuar con flujo normal si falla handoff
+            }
+        }
         // 2. Obtener historial de conversación si existe
         let history = [];
         if (conversationId) {
@@ -127,8 +242,25 @@ async function generateBotReply(phone, text, conversationId) {
                 via: 'fsm' // Marcar como FSM para consistencia
             };
         }
-        // 3. Intentar usar IA primero (si está disponible y no se superó el límite)
+        // 2.6. Fallback mínimo: si intentRouter devolvió HANDOFF pero no hay conversationId
+        // (handoff no se ejecutó) y la IA está desactivada, usar mensaje default del FSM
         const aiAvailable = await (0, aiCostTracker_1.canUseAi)();
+        const handoffRequestedButNoConversation = routing.action === 'HANDOFF' && !conversationId;
+        if (handoffRequestedButNoConversation && (!aiAvailable || !env_1.default.openaiApiKey)) {
+            // Usar el mensaje default del FSM (START) para evitar silencio
+            const { FSMState, STATE_TEXTS } = await Promise.resolve().then(() => __importStar(require('../fsm/states')));
+            logger_1.default.info('fallback_default_message_no_ia', {
+                phone: normalizedPhone,
+                conversationId,
+                routingAction: routing.action,
+                textPreview: text.substring(0, 50)
+            });
+            return {
+                replies: [STATE_TEXTS[FSMState.START]],
+                via: 'fsm'
+            };
+        }
+        // 3. Intentar usar IA primero (si está disponible y no se superó el límite)
         if (aiAvailable && env_1.default.openaiApiKey) {
             try {
                 const aiContext = {

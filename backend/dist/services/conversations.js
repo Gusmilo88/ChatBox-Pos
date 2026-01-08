@@ -10,10 +10,13 @@ exports.enqueueReply = enqueueReply;
 exports.appendOperatorMessage = appendOperatorMessage;
 exports.enqueueOutbox = enqueueOutbox;
 exports.markMessageDelivery = markMessageDelivery;
+exports.assignConversation = assignConversation;
 const firebase_1 = require("../firebase");
 const uuid_1 = require("uuid");
 const logger_1 = __importDefault(require("../libs/logger"));
 const botReply_1 = require("./botReply");
+const autoDerivation_1 = require("./autoDerivation");
+const operatorForwarding_1 = require("./operatorForwarding");
 // Normalizar phone a E.164
 function normalizePhone(phone) {
     // Remover espacios y caracteres especiales
@@ -212,6 +215,22 @@ async function listConversations(params) {
                 afterCount: filteredDocs.length
             });
         }
+        // Filtro por assignedTo según rol del usuario
+        // Si es operador, solo ver sus conversaciones asignadas
+        // Si es owner, ver todas (pero puede filtrar por assignedTo si quiere)
+        if (params.userRole === 'operador' && params.userEmail) {
+            const beforeCount = filteredDocs.length;
+            filteredDocs = filteredDocs.filter(doc => {
+                const data = doc.data();
+                // Operador solo ve conversaciones asignadas a él
+                return data.assignedTo === params.userEmail;
+            });
+            logger_1.default.info('Applied assignedTo filter for operador', {
+                userEmail: params.userEmail,
+                beforeCount,
+                afterCount: filteredDocs.length
+            });
+        }
         // Calcular total después de todos los filtros
         const total = filteredDocs.length;
         // Aplicar paginación
@@ -281,7 +300,8 @@ async function listConversations(params) {
                 lastMessageAt: data.lastMessageAt?.toDate?.()?.toISOString() || new Date().toISOString(),
                 unreadCount: data.unreadCount || 0,
                 needsReply: data.needsReply || false,
-                lastMessage
+                lastMessage,
+                assignedTo: data.assignedTo || undefined
             };
             items.push(item);
         }
@@ -375,7 +395,8 @@ async function getConversationById(id) {
             name: conversationData?.name,
             isClient: conversationData?.isClient ?? false,
             needsReply: conversationData?.needsReply ?? false,
-            messages
+            messages,
+            assignedTo: conversationData?.assignedTo || undefined
         };
         logger_1.default.info('conversation_retrieved', {
             conversationId: id,
@@ -470,6 +491,21 @@ async function simulateIncoming(request) {
             const isHumanTransfer = botResponse.replies.some(reply => reply.includes('derivamos con el equipo') ||
                 reply.includes('te contactará un profesional') ||
                 reply.includes('te derivamos'));
+            // DETECCIÓN AUTOMÁTICA DE DERIVACIÓN
+            // Analizar el mensaje del cliente para determinar a qué operador derivar
+            const derivationResult = (0, autoDerivation_1.detectDerivation)(sanitizedText);
+            let shouldAutoDerive = false;
+            let derivedOperator = null;
+            if (isHumanTransfer && derivationResult.shouldDerive && derivationResult.operator) {
+                shouldAutoDerive = true;
+                derivedOperator = derivationResult.operator;
+                logger_1.default.info('auto_derivation_detected', {
+                    conversationId,
+                    operator: derivedOperator.name,
+                    reason: derivationResult.reason,
+                    phone: maskPII(normalizedPhone)
+                });
+            }
             // Marcar como needsReply si: mensaje es urgente O se deriva a humano
             const shouldMarkAsNeedsReply = isUrgentMessage || isHumanTransfer;
             if (botResponse.replies && botResponse.replies.length > 0) {
@@ -495,6 +531,54 @@ async function simulateIncoming(request) {
                         isHumanTransfer,
                         isUrgentMessage
                     });
+                }
+                // Si se detectó derivación automática, enviar mensaje específico al cliente
+                if (shouldAutoDerive && derivedOperator) {
+                    const derivationMessage = `Te derivamos con ${derivedOperator.name}. En breve te responderá. ¡Gracias! 🙌`;
+                    const derivationIdempotencyKey = `derive-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    await enqueueOutbox(conversationId, normalizedPhone, derivationMessage, derivationIdempotencyKey);
+                    // Guardar mensaje de derivación
+                    const derivationMessageId = (0, uuid_1.v4)();
+                    await firebase_1.collections.messages(conversationId).doc(derivationMessageId).set({
+                        ts: new Date(),
+                        from: 'system',
+                        text: derivationMessage,
+                        via: 'whatsapp',
+                        aiSuggested: false
+                    });
+                    // Obtener historial de mensajes para el operador
+                    const messagesSnapshot = await firebase_1.collections.messages(conversationId)
+                        .orderBy('ts', 'desc')
+                        .limit(10)
+                        .get();
+                    const messageHistory = messagesSnapshot.docs
+                        .reverse()
+                        .map(doc => {
+                        const data = doc.data();
+                        return {
+                            from: data.from === 'usuario' ? 'user' : 'bot',
+                            text: data.text || '',
+                            timestamp: data.ts?.toDate?.()?.toISOString() || new Date().toISOString()
+                        };
+                    });
+                    // Reenviar al operador
+                    try {
+                        await (0, operatorForwarding_1.forwardToOperator)(conversationId, normalizedPhone, conversationData?.name || null, sanitizedText, derivedOperator, messageHistory);
+                        logger_1.default.info('auto_derivation_completed', {
+                            conversationId,
+                            operator: derivedOperator.name,
+                            operatorPhone: derivedOperator.phone.replace(/\d(?=\d{4})/g, '*')
+                        });
+                    }
+                    catch (error) {
+                        const msg = (error instanceof Error) ? error.message : String(error);
+                        logger_1.default.error('error_forwarding_to_operator', {
+                            conversationId,
+                            operator: derivedOperator.name,
+                            error: msg
+                        });
+                        // No fallar la conversación si falla el reenvío
+                    }
                 }
                 // Actualizar conversación con último mensaje del sistema
                 // Marcar como needsReply si: mensaje es urgente O se deriva a humano
@@ -691,6 +775,93 @@ async function markMessageDelivery(conversationId, messageId, status) {
         logger_1.default.error('error_updating_delivery_status', {
             conversationId,
             messageId,
+            error: msg
+        });
+        throw error;
+    }
+}
+/**
+ * Asignar una conversación a un operador (secretaria)
+ * @param conversationId ID de la conversación
+ * @param assignedTo Email del operador a asignar (null para desasignar)
+ * @param notifyClient Si enviar mensaje automático al cliente
+ * @returns Nombre del operador asignado (para el mensaje)
+ */
+async function assignConversation(conversationId, assignedTo, notifyClient = true) {
+    try {
+        const conversationRef = firebase_1.collections.conversations().doc(conversationId);
+        const conversationDoc = await conversationRef.get();
+        if (!conversationDoc.exists) {
+            throw new Error('Conversación no encontrada');
+        }
+        const conversationData = conversationDoc.data();
+        const phone = conversationData?.phone;
+        if (!phone) {
+            throw new Error('La conversación no tiene teléfono asociado');
+        }
+        // Obtener nombre del operador si se asigna
+        let operatorName = null;
+        if (assignedTo) {
+            try {
+                // Buscar admin por email para obtener nombre (si existe campo name)
+                const adminSnapshot = await firebase_1.collections.admins()
+                    .where('email', '==', assignedTo.toLowerCase().trim())
+                    .limit(1)
+                    .get();
+                if (!adminSnapshot.empty) {
+                    const adminData = adminSnapshot.docs[0].data();
+                    // Si hay campo name, usarlo; sino usar email sin dominio
+                    operatorName = adminData.name || assignedTo.split('@')[0];
+                }
+                else {
+                    // Si no existe en admins, usar email sin dominio
+                    operatorName = assignedTo.split('@')[0];
+                }
+            }
+            catch (error) {
+                // Si falla, usar email sin dominio
+                operatorName = assignedTo.split('@')[0];
+            }
+        }
+        // Actualizar conversación
+        await conversationRef.update({
+            assignedTo: assignedTo || null,
+            updatedAt: new Date()
+        });
+        logger_1.default.info('conversation_assigned', {
+            conversationId,
+            assignedTo: assignedTo || 'null',
+            operatorName,
+            notifyClient
+        });
+        // Enviar mensaje automático al cliente si se solicita
+        if (notifyClient && assignedTo && operatorName) {
+            const notificationMessage = `Te derivamos con ${operatorName}. En breve te contactará para ayudarte. ¡Gracias! 🙌`;
+            // Agregar mensaje del sistema
+            const messageId = (0, uuid_1.v4)();
+            const now = new Date();
+            await conversationRef.collection('messages').doc(messageId).set({
+                ts: now,
+                from: 'sistema',
+                text: notificationMessage,
+                via: 'manual',
+                aiSuggested: false
+            });
+            // Encolar mensaje para envío
+            await enqueueOutbox(conversationId, phone, notificationMessage);
+            logger_1.default.info('assignment_notification_sent', {
+                conversationId,
+                phone: maskPII(phone),
+                operatorName
+            });
+        }
+        return { operatorName };
+    }
+    catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
+        logger_1.default.error('error_assigning_conversation', {
+            conversationId,
+            assignedTo,
             error: msg
         });
         throw error;

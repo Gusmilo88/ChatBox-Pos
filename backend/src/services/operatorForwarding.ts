@@ -274,8 +274,27 @@ export async function forwardOperatorResponseToClient(
   operator: Operator
 ): Promise<void> {
   try {
-    // Enviar mensaje al cliente desde el número del chatbot
-    await enqueueOutbox(conversationId, clientPhone, messageText)
+    // Firma premium del operador
+    const operatorNames: Record<string, string> = {
+      'Elina': 'Elina – POS & Asociados',
+      'Belén': 'Belén – POS & Asociados',
+      'Iván': 'Iván – POS & Asociados'
+    }
+    const operatorSignature = operatorNames[operator.name] || `${operator.name} – POS & Asociados`
+    const signedMessage = `${messageText}\n\n— ${operatorSignature}`
+
+    // Enviar mensaje al cliente desde el número del chatbot (con firma)
+    await enqueueOutbox(conversationId, clientPhone, signedMessage)
+
+    // Cerrar handoff automáticamente cuando el operador responde
+    const { closeHandoff } = await import('./handoffManager')
+    await closeHandoff(conversationId, clientPhone).catch(err => {
+      // Si falla cerrar handoff, loguear pero no fallar el envío
+      logger.warn('error_closing_handoff_after_operator_response', {
+        conversationId,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    })
 
     // Actualizar última respuesta del operador en la conversación
     await collections.conversations().doc(conversationId).update({

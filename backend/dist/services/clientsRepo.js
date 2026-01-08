@@ -38,6 +38,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ClientsRepository = void 0;
 exports.getDoc = getDoc;
+exports.getClienteByCuit = getClienteByCuit;
 exports.existsByCuit = existsByCuit;
 exports.getSaldo = getSaldo;
 exports.getUltimosComprobantes = getUltimosComprobantes;
@@ -59,6 +60,20 @@ async function xl_getUltimos(cuit) {
 // --- Firestore ---
 async function getDoc(cuit) {
     return fb_getDoc(cuit);
+}
+/**
+ * Obtener cliente por CUIT (versión mejorada con limpiarCuit)
+ * @param cuitInput - CUIT a buscar (puede tener guiones o espacios)
+ * @returns { exists: boolean, data: Cliente | null }
+ */
+async function getClienteByCuit(cuitInput) {
+    const { limpiarCuit } = await Promise.resolve().then(() => __importStar(require('../utils/cuit')));
+    const cuitLimpio = limpiarCuit(cuitInput);
+    const cliente = await fb_getDoc(cuitLimpio);
+    return {
+        exists: cliente !== null,
+        data: cliente
+    };
 }
 async function fb_getDoc(cuit) {
     const { getDb } = await Promise.resolve().then(() => __importStar(require('../firebase')));

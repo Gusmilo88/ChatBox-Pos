@@ -51,6 +51,7 @@ const webhook_1 = __importDefault(require("./routes/webhook"));
 const aiStats_1 = __importDefault(require("./routes/aiStats"));
 const stats_1 = __importDefault(require("./routes/stats"));
 const autoReplies_1 = __importDefault(require("./routes/autoReplies"));
+const simulator_1 = __importDefault(require("./routes/simulator"));
 const app = (0, express_1.default)();
 app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT || 4000);
@@ -67,6 +68,7 @@ app.use('/api/health', health_1.default);
 app.use('/auth', auth_1.default);
 // Simulación (pública, para testing)
 app.use('/api/simulate', simulate_1.default);
+app.use('/api/simulator', simulator_1.default);
 // Meta WhatsApp: webhook (raw body)
 app.use('/api/webhook/whatsapp', express_1.default.raw({ type: 'application/json' }), webhook_1.default);
 // Rutas protegidas por sesión

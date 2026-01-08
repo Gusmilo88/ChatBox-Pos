@@ -61,7 +61,12 @@ router.get('/', session_1.requireSession, async (req, res) => {
             ...validatedParams,
             query: validatedParams.query ? '***' : undefined
         });
-        const result = await (0, conversations_1.listConversations)(validatedParams);
+        // Pasar información del usuario para filtrar por assignedTo
+        const result = await (0, conversations_1.listConversations)({
+            ...validatedParams,
+            userEmail: req.user?.email,
+            userRole: req.user?.role
+        });
         logger_1.default.info('Conversations listed successfully', {
             total: result.total,
             returned: result.conversations.length,
@@ -164,6 +169,42 @@ router.post('/:id/reply', session_1.requireSession, async (req, res) => {
     catch (error) {
         const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('error_sending_reply', {
+            conversationId: req.params.id,
+            error: msg
+        });
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+// POST /api/conversations/:id/assign - Asignar conversación a operador
+const assignSchema = zod_1.z.object({
+    assignedTo: zod_1.z.string().email().nullable(),
+    notifyClient: zod_1.z.boolean().optional().default(true)
+});
+router.post('/:id/assign', session_1.requireSession, async (req, res) => {
+    try {
+        const { id } = req.params;
+        // Solo owners pueden asignar conversaciones
+        if (req.user?.role !== 'owner') {
+            return res.status(403).json({ error: 'Solo el administrador puede asignar conversaciones' });
+        }
+        const validated = assignSchema.parse(req.body);
+        const result = await (0, conversations_1.assignConversation)(id, validated.assignedTo, validated.notifyClient);
+        logger_1.default.info('conversation_assigned_via_api', {
+            conversationId: id,
+            assignedTo: validated.assignedTo,
+            assignedBy: req.user?.email
+        });
+        res.json({
+            success: true,
+            operatorName: result.operatorName
+        });
+    }
+    catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
+        if (msg === 'Conversación no encontrada') {
+            return res.status(404).json({ error: 'Conversación no encontrada' });
+        }
+        logger_1.default.error('error_assigning_conversation', {
             conversationId: req.params.id,
             error: msg
         });

@@ -1,11 +1,20 @@
 /**
+ * Limpia un CUIT: solo números
+ * @param cuit - CUIT a limpiar
+ * @returns CUIT limpio (solo números)
+ */
+export function limpiarCuit(cuit: string): string {
+  return cuit.replace(/\D/g, '')
+}
+
+/**
  * Valida un CUIT usando el algoritmo de AFIP
  * @param cuit - CUIT a validar (solo números)
  * @returns true si es válido, false si no
  */
 export function validarCUIT(cuit: string): boolean {
   // Remover espacios y caracteres no numéricos
-  const cleanCuit = cuit.replace(/\D/g, '');
+  const cleanCuit = limpiarCuit(cuit);
   
   // Debe tener exactamente 11 dígitos
   if (cleanCuit.length !== 11) {

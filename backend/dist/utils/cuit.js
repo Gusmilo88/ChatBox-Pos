@@ -1,6 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.limpiarCuit = limpiarCuit;
 exports.validarCUIT = validarCUIT;
+/**
+ * Limpia un CUIT: solo números
+ * @param cuit - CUIT a limpiar
+ * @returns CUIT limpio (solo números)
+ */
+function limpiarCuit(cuit) {
+    return cuit.replace(/\D/g, '');
+}
 /**
  * Valida un CUIT usando el algoritmo de AFIP
  * @param cuit - CUIT a validar (solo números)
@@ -8,7 +17,7 @@ exports.validarCUIT = validarCUIT;
  */
 function validarCUIT(cuit) {
     // Remover espacios y caracteres no numéricos
-    const cleanCuit = cuit.replace(/\D/g, '');
+    const cleanCuit = limpiarCuit(cuit);
     // Debe tener exactamente 11 dígitos
     if (cleanCuit.length !== 11) {
         return false;

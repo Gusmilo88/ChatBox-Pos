@@ -5,25 +5,50 @@ import logger from '../libs/logger';
 
 const MODE = String(process.env.USE_FIREBASE || '0')
 
+/**
+ * Tipo Cliente según esquema real de Firestore
+ * Campos confirmados (exactos):
+ * - cuit: string
+ * - nombre: string
+ * - estado: 'regular' | 'irregular' | 'critico'
+ * - deuda: number (deuda monotributo, si corresponde)
+ * - deuda_honorarios: number (ÚNICA fuente de verdad para honorarios a pagar)
+ * - monto_monotributo: number
+ * - planes_pago: string
+ * - ingresos_brutos: string
+ * - info_adicional: string
+ * - whatsapp: string | null
+ * - ventas_enviadas: 'si' | 'no'
+ * - recategorizacion: { categoria:number, facturacion_total:number, monto_disponible:number }
+ * 
+ * NOTA: `conceptos` existe pero es SOLO histórico administrativo interno: NO usar para calcular ni mostrar montos al cliente.
+ */
 type Cliente = {
   cuit: string
   nombre: string
   email?: string
-  saldo?: number
+  saldo?: number // Legacy, usar deuda_honorarios o deuda
   id_xubio?: string
   last_doc_date?: string
   comprobantes?: string[]
-  // Campos de tu base de datos real
-  categoria_monotributo?: string
-  deuda?: number
-  deuda_honorarios?: number
-  estado?: string
-  info_adicional?: string
-  ingresos_brutos?: string
-  lastNotificationDate?: string
+  // Campos de tu base de datos real (ESQUEMA FIRESTORE)
+  estado?: 'regular' | 'irregular' | 'critico'
+  deuda?: number // deuda monotributo (si corresponde)
+  deuda_honorarios?: number // ÚNICA fuente de verdad para honorarios a pagar
   monto_monotributo?: number
   planes_pago?: string
-  recategorizacion?: any
+  ingresos_brutos?: string
+  info_adicional?: string
+  whatsapp?: string | null
+  ventas_enviadas?: 'si' | 'no'
+  recategorizacion?: {
+    categoria?: number
+    facturacion_total?: number
+    monto_disponible?: number
+  }
+  // Campos legacy (mantener para compatibilidad)
+  categoria_monotributo?: string
+  lastNotificationDate?: string
 }
 
 // --- Excel (implementación actual) ---
@@ -42,6 +67,23 @@ async function xl_getUltimos(cuit: string): Promise<string[]> {
 // --- Firestore ---
 export async function getDoc(cuit: string): Promise<Cliente | null> {
   return fb_getDoc(cuit);
+}
+
+/**
+ * Obtener cliente por CUIT (versión mejorada con limpiarCuit)
+ * @param cuitInput - CUIT a buscar (puede tener guiones o espacios)
+ * @returns { exists: boolean, data: Cliente | null }
+ */
+export async function getClienteByCuit(cuitInput: string): Promise<{ exists: boolean; data: Cliente | null }> {
+  const { limpiarCuit } = await import('../utils/cuit')
+  const cuitLimpio = limpiarCuit(cuitInput)
+  
+  const cliente = await fb_getDoc(cuitLimpio)
+  
+  return {
+    exists: cliente !== null,
+    data: cliente
+  }
 }
 
 async function fb_getDoc(cuit: string): Promise<Cliente | null> {

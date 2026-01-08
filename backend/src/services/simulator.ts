@@ -42,7 +42,7 @@ export async function simulateClientMessage(
     const result = await simulateIncoming({
       phone,
       text,
-      via: 'simulator' // Marcar como simulación
+      via: 'manual' // Marcar como simulación
     })
 
     // Obtener la conversación para ver si fue derivada

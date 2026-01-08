@@ -29,6 +29,16 @@ exports.config = {
     whatsappDriver: (process.env.WHATSAPP_DRIVER || 'mock'),
     // WhatsApp Cloud API Configuration
     whatsappToken: process.env.WHATSAPP_TOKEN || '',
-    whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || ''
+    whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
+    // Auto-derivation Configuration
+    operatorsConfig: process.env.OPERATORS_CONFIG ? (() => {
+        try {
+            return JSON.parse(process.env.OPERATORS_CONFIG);
+        }
+        catch {
+            return null;
+        }
+    })() : null,
+    ivanPhone: process.env.IVAN_PHONE || ''
 };
 exports.default = exports.config;
