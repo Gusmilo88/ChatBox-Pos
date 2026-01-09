@@ -9,6 +9,7 @@ import { handlePayment, askPaymentTypeClarification } from './paymentHandler';
 import { performHandoff, isHandoffActive } from './handoffManager';
 import { isOffTopic, extractCUIT, shouldAskForCUIT, routeToStaff, getStaffName, type StaffMember } from './topicGuard';
 import { REPLIES, maskCuit, maskPhone } from './replies';
+import { aiRewrite, canRewriteMessage } from './aiRewrite';
 import logger from '../libs/logger';
 import config from '../config/env';
 
@@ -49,11 +50,23 @@ function normalizePhone(phone: string): string {
 export async function generateBotReply(
   phone: string,
   text: string,
-  conversationId?: string
+  conversationId?: string,
+  messageType?: string
 ): Promise<{ replies: string[]; via: 'ai' | 'fsm' | 'payment' | 'handoff' }> {
   const normalizedPhone = normalizePhone(phone);
   
   try {
+    // MANEJO DE AUDIOS (OBLIGATORIO) - ANTES DE CUALQUIER PROCESAMIENTO
+    if (messageType === 'audio' || messageType === 'voice') {
+      logger.info('audio_received', {
+        conversationId,
+        phone: maskPhone(normalizedPhone)
+      });
+      return {
+        replies: [REPLIES.audioNotSupported],
+        via: 'fsm'
+      };
+    }
     // 0. Verificar si hay handoff activo (si hay, silenciar IA hasta HANDOFF_CLOSED)
     if (conversationId) {
       const handoffActive = await isHandoffActive(conversationId);
@@ -483,156 +496,141 @@ export async function generateBotReply(
       }
     }
     
-    // 2. Obtener historial de conversación si existe
-    let history: Array<{ from: 'user' | 'bot'; text: string }> = [];
-    if (conversationId) {
-      try {
-        const messagesSnapshot = await collections.messages(conversationId)
-          .orderBy('ts', 'desc')
-          .limit(6) // Obtener últimos 6 mensajes (3 pares user-bot)
-          .get();
-        
-        if (!messagesSnapshot.empty) {
-          const messages = messagesSnapshot.docs
-            .map(doc => {
-              const data = doc.data();
-              return {
-                from: (data.from === 'usuario' || data.from === 'user') ? 'user' as const : 'bot' as const,
-                text: data.text || data.message || ''
-              };
-            })
-            .reverse(); // Invertir para tener orden cronológico
-          
-          history = messages;
-        }
-      } catch (error) {
-        logger.debug('Error obteniendo historial para IA', { error: (error as Error)?.message });
-      }
-    }
-    
     // 2.5. Verificar respuestas automáticas (horario/palabras clave)
-    // Esto tiene prioridad sobre IA y FSM
+    // Esto tiene prioridad sobre FSM e IA
     const autoReply = await findAutoReply(text, isClient);
     if (autoReply) {
-      logger.info('Respuesta automática aplicada', {
-        phone: normalizedPhone,
+      logger.info('auto_reply_applied', {
+        phone: maskPhone(normalizedPhone),
         conversationId,
         isClient,
         responseLength: autoReply.length
       });
       return {
         replies: [autoReply],
-        via: 'fsm' // Marcar como FSM para consistencia
-      };
-    }
-
-    // 2.6. Fallback mínimo: si intentRouter devolvió HANDOFF pero no hay conversationId
-    // (handoff no se ejecutó) y la IA está desactivada, usar saludo inicial o mensaje default
-    const aiAvailable = await canUseAi();
-    const handoffRequestedButNoConversation = routing.action === 'HANDOFF' && !conversationId;
-    
-    if (handoffRequestedButNoConversation && (!aiAvailable || !config.openaiApiKey)) {
-      // Si no se mostró el saludo inicial, mostrarlo
-      if (!initialGreetingShown) {
-        const hasRoleOrCuit = !!(role || cuit);
-        const greetingMessage = REPLIES.greetingInitial(hasRoleOrCuit);
-        
-        if (conversationId) {
-          await collections.conversations().doc(conversationId).update({
-            initialGreetingShown: true,
-            updatedAt: new Date()
-          });
-        }
-        
-        logger.info('fallback_initial_greeting', {
-          phone: maskPhone(normalizedPhone),
-          conversationId,
-          hasRoleOrCuit
-        });
-        return {
-          replies: [greetingMessage],
-          via: 'fsm'
-        };
-      }
-      
-      // Si ya se mostró, usar mensaje default del FSM
-      const { FSMState, STATE_TEXTS } = await import('../fsm/states');
-      logger.info('fallback_default_message_no_ia', {
-        phone: maskPhone(normalizedPhone),
-        conversationId,
-        routingAction: routing.action,
-        textPreview: text.substring(0, 50)
-      });
-      return {
-        replies: [STATE_TEXTS[FSMState.START]],
         via: 'fsm'
       };
     }
 
-    // 3. Intentar usar IA SOLO si es contable-related (ya pasó el guard de off-topic)
-    // La IA solo se llama si el mensaje es contable-related (no off-topic)
-    if (aiAvailable && config.openaiApiKey && !isOffTopicMessage) {
-      try {
-        const aiContext: AiContext = {
-          role: role || (isClient ? 'cliente' : 'no_cliente'),
-          cuit,
-          nombre,
-          lastUserText: text,
-          history: history.length > 0 ? history : undefined,
-          conversationId
-        };
-        
-        const aiResponse = await aiReply(aiContext);
-        
-        logger.info('Respuesta generada por IA', {
-          phone: normalizedPhone,
-          conversationId,
-          isClient,
-          role,
-          responseLength: aiResponse.length
-        });
-        
-        return {
-          replies: [aiResponse],
-          via: 'ai'
-        };
-      } catch (error) {
-        const msg = (error as Error)?.message ?? String(error);
-        logger.warn('Error en IA, usando FSM como fallback', {
-          phone: normalizedPhone,
-          error: msg
-        });
-        // Continuar con FSM como fallback
-      }
-    } else {
-      if (isOffTopicMessage) {
-        logger.info('IA bloqueada: mensaje off-topic', {
-          phone: normalizedPhone,
-          strikes: offTopicStrikes
-        });
-      } else {
-        logger.info('IA no disponible, usando FSM', {
-          phone: normalizedPhone,
-          aiAvailable,
-          hasApiKey: !!config.openaiApiKey
-        });
-      }
-    }
-    
-    // 4. Fallback a FSM
+    // ============================================
+    // PASO 1: EJECUTAR FSM PRIMERO (FUENTE DE VERDAD)
+    // ============================================
     const fsm = getFSMManager();
     const fsmResult = await fsm.processMessage(normalizedPhone, text);
     
-    logger.info('Respuesta generada por FSM', {
+    // Obtener el primer mensaje del FSM (normalmente hay solo uno)
+    const fsmMessage = fsmResult.replies[0] || '';
+    
+    logger.info('fsm_executed_first', {
       phone: maskPhone(normalizedPhone),
       conversationId,
-      repliesCount: fsmResult.replies.length
+      fsmRepliesCount: fsmResult.replies.length,
+      fsmMessagePreview: fsmMessage.substring(0, 50),
+      handoffTo: handoffTo || null,
+      messageType: messageType || 'text'
     });
     
-    return {
-      replies: fsmResult.replies,
-      via: 'fsm'
-    };
+    // ============================================
+    // PASO 2: VERIFICAR SI SE PUEDE REFORMULAR CON IA
+    // ============================================
+    
+    // NO reformular si:
+    // 1. Hay handoff activo (handoffTo está seteado)
+    // 2. Es un audio
+    // 3. El mensaje es exacto (START, menú, derivaciones, etc.)
+    // 4. No hay IA disponible
+    
+    const hasHandoffActive = !!handoffTo;
+    const isAudio = messageType === 'audio' || messageType === 'voice';
+    const isExactMessage = !canRewriteMessage(fsmMessage);
+    const aiAvailable = await canUseAi();
+    const hasAiKey = !!config.openaiApiKey;
+    
+    // Log de verificación
+    logger.info('ai_rewrite_check', {
+      phone: maskPhone(normalizedPhone),
+      conversationId,
+      hasHandoffActive,
+      isAudio,
+      isExactMessage,
+      aiAvailable,
+      hasAiKey,
+      canRewrite: !hasHandoffActive && !isAudio && !isExactMessage && aiAvailable && hasAiKey
+    });
+    
+    // Si NO se puede reformular, usar mensaje del FSM directamente
+    if (hasHandoffActive || isAudio || isExactMessage || !aiAvailable || !hasAiKey) {
+      let skipReason = '';
+      if (hasHandoffActive) skipReason = 'handoff_active';
+      else if (isAudio) skipReason = 'audio_message';
+      else if (isExactMessage) skipReason = 'exact_message';
+      else if (!aiAvailable) skipReason = 'ai_not_available';
+      else if (!hasAiKey) skipReason = 'no_ai_key';
+      
+      logger.info('ai_rewrite_skipped', {
+        phone: maskPhone(normalizedPhone),
+        conversationId,
+        reason: skipReason,
+        fsmMessagePreview: fsmMessage.substring(0, 50)
+      });
+      
+      return {
+        replies: fsmResult.replies,
+        via: 'fsm'
+      };
+    }
+    
+    // ============================================
+    // PASO 3: REFORMULAR CON IA (SI CORRESPONDE)
+    // ============================================
+    try {
+      const rewritten = await aiRewrite(fsmMessage, {
+        role: role || (isClient ? 'cliente' : 'no_cliente'),
+        nombre,
+        cuit,
+        conversationId
+      });
+      
+      if (rewritten && rewritten.trim().length > 0) {
+        logger.info('ai_rewrite_applied', {
+          phone: maskPhone(normalizedPhone),
+          conversationId,
+          originalLength: fsmMessage.length,
+          rewrittenLength: rewritten.length
+        });
+        
+        return {
+          replies: [rewritten],
+          via: 'ai' // Marcar como 'ai' aunque sea reformulación
+        };
+      } else {
+        // Si la reformulación falló o devolvió null, usar FSM
+        logger.debug('ai_rewrite_failed_using_fsm', {
+          phone: maskPhone(normalizedPhone),
+          conversationId,
+          fsmMessagePreview: fsmMessage.substring(0, 50)
+        });
+        
+        return {
+          replies: fsmResult.replies,
+          via: 'fsm'
+        };
+      }
+    } catch (error) {
+      const msg = (error as Error)?.message ?? String(error);
+      logger.warn('ai_rewrite_error_using_fsm', {
+        phone: maskPhone(normalizedPhone),
+        conversationId,
+        error: msg,
+        fsmMessagePreview: fsmMessage.substring(0, 50)
+      });
+      
+      // Si falla la reformulación, usar mensaje del FSM
+      return {
+        replies: fsmResult.replies,
+        via: 'fsm'
+      };
+    }
     
   } catch (error) {
     const msg = (error as Error)?.message ?? String(error);

@@ -35,6 +35,18 @@ interface MetaWebhookEntry {
         text?: {
           body: string
         }
+        interactive?: {
+          type: 'list_reply' | 'button_reply'
+          list_reply?: {
+            id: string
+            title: string
+            description?: string
+          }
+          button_reply?: {
+            id: string
+            title: string
+          }
+        }
         context?: {
           from: string
           id: string
@@ -141,9 +153,80 @@ export async function handleWebhookMessage(req: Request, res: Response): Promise
       for (const entry of payload.entry) {
         if (entry.changes && Array.isArray(entry.changes)) {
           for (const change of entry.changes) {
-            // Procesar mensajes de texto entrantes
+            // Procesar mensajes entrantes (texto y audio)
             if (change.value?.messages && Array.isArray(change.value.messages)) {
               for (const message of change.value.messages) {
+                // MANEJO DE AUDIOS (OBLIGATORIO)
+                if (message.type === 'audio' || message.type === 'voice') {
+                  const from = message.from
+                  const normalizedFrom = from.startsWith('+') ? from : `+${from}`
+                  
+                  // Procesar audio: responder que no puede escucharlos
+                  simulateIncoming({
+                    phone: normalizedFrom,
+                    text: '', // Texto vacío, el botReply detectará el tipo de mensaje
+                    via: 'whatsapp',
+                    messageType: message.type
+                  })
+                    .then(async (result) => {
+                      logger.info('whatsapp_audio_processed', {
+                        from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                        messageId: message.id,
+                        conversationId: result.conversationId
+                      })
+                    })
+                    .catch((error) => {
+                      logger.error('whatsapp_audio_process_error', {
+                        error: error instanceof Error ? error.message : 'Unknown error',
+                        from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                        messageId: message.id
+                      })
+                    })
+                  
+                  processedMessages++
+                  continue
+                }
+                
+                // MANEJO DE RESPUESTAS DE MENÚ INTERACTIVO
+                if (message.type === 'interactive' && message.interactive?.type === 'list_reply') {
+                  const from = message.from
+                  const normalizedFrom = from.startsWith('+') ? from : `+${from}`
+                  const selectedId = message.interactive.list_reply?.id || ''
+                  
+                  logger.info('whatsapp_interactive_list_reply', {
+                    from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                    selectedId,
+                    messageId: message.id
+                  });
+                  
+                  // Procesar como mensaje de texto con el ID seleccionado
+                  // El FSM procesará "1", "2", etc. igual que si fuera texto
+                  simulateIncoming({
+                    phone: normalizedFrom,
+                    text: selectedId, // Enviar el ID como texto (ej: "1", "2", "1.1", etc.)
+                    via: 'whatsapp',
+                    messageType: 'interactive'
+                  })
+                    .then(async (result) => {
+                      logger.info('whatsapp_interactive_reply_processed', {
+                        from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                        selectedId,
+                        conversationId: result.conversationId
+                      });
+                    })
+                    .catch((error) => {
+                      logger.error('whatsapp_interactive_reply_process_error', {
+                        error: error instanceof Error ? error.message : 'Unknown error',
+                        from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                        selectedId
+                      });
+                    });
+                  
+                  processedMessages++
+                  continue
+                }
+                
+                // Procesar mensajes de texto
                 if (message.type === 'text' && message.text?.body) {
                   const from = message.from
                   const text = message.text.body

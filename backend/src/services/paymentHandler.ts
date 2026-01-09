@@ -101,12 +101,12 @@ export async function handlePayment(
       logger.info('payment_handler_cliente_not_found', { 
         cuit: maskCuit(cuitLimpio)
       })
-      return {
-        success: false,
-        message: REPLIES.cuitNotFound,
-        needsCuit: false,
-        cuit: cuitLimpio
-      }
+          return {
+            success: false,
+            message: REPLIES.cuitValidNotClient,
+            needsCuit: false,
+            cuit: cuitLimpio
+          }
     }
 
     // E) Si EXISTE cliente y es pago de HONORARIOS (respuesta específica)

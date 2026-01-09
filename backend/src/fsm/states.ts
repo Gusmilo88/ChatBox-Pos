@@ -15,6 +15,7 @@ export enum FSMState {
   NO_CLIENTE_PLAN = 'NO_CLIENTE_PLAN',
   NO_CLIENTE_RESPONSABLE = 'NO_CLIENTE_RESPONSABLE',
   NO_CLIENTE_CONSULTA = 'NO_CLIENTE_CONSULTA',
+  NO_CLIENTE_CUIT = 'NO_CLIENTE_CUIT', // CUIT válido pero no cliente
   HUMANO = 'HUMANO'
 }
 
@@ -25,9 +26,9 @@ export enum GlobalCommands {
 }
 
 export const STATE_TEXTS = {
-  [FSMState.START]: "¡Hola! 👋 Soy el asistente de POS & Asociados. Elegí una opción:\n\n1 Soy cliente\n2 Quiero ser cliente / Consultar servicios",
-  [FSMState.WAIT_CUIT]: "Ese CUIT no parece válido. Probá otra vez (solo números).",
-  [FSMState.CLIENTE_MENU]: "¡Hola! 👋 Soy el asistente de POS & Asociados. Elegí una opción:\n\n1. Consultar mi estado general en ARCA e Ingresos Brutos\n2. Solicitar una factura electrónica\n3. Enviar las ventas del mes\n4. Agendar una reunión\n5. Hablar con Iván por otras consultas",
+  [FSMState.START]: "¡Hola! Soy el asistente virtual del estudio contable Pos & Asociados. 👋\n\nPara empezar, escribime tu CUIT, sin puntos ni guiones. ✍",
+  [FSMState.WAIT_CUIT]: "El CUIT ingresado no es válido. Escribilo sin puntos ni guiones, por favor.",
+  [FSMState.CLIENTE_MENU]: "Hola {{NOMBRE}} 👋\n¿Con qué tema te ayudamos?\n\n1️⃣ Facturación / comprobantes\n2️⃣ Pagos / VEP / deudas\n3️⃣ Pagar honorarios\n4️⃣ Datos registrales\n5️⃣ Sueldos / empleada doméstica\n6️⃣ Consultas generales\n7️⃣ Hablar con el estudio",
   
   // Estados del flujo de cliente
   [FSMState.CLIENTE_ARCA]: "📊 Consulta de estado general\n\nPodés revisar en cualquier momento tu situación impositiva en ARCA e Ingresos Brutos a través de nuestra aplicación exclusiva.\n\n🔗 Ingresá con tu CUIT en este link:\nhttps://app.posyasociados.com/login\n\n🔄 Recordá que la información se actualiza todos los viernes a las 18:00 hs.\n\nSi necesitás ayuda para interpretar los datos o detectar alguna irregularidad, escribinos por acá y un asesor del estudio te asiste personalmente.\n\n1. Gracias, consulto en la App.\n2. Consultar a una persona.",
@@ -53,5 +54,6 @@ export const STATE_TEXTS = {
   
   [FSMState.NO_CLIENTE_CONSULTA]: "📌 **Estado de mi Consulta**\n\nPara poder ubicar tu consulta, por favor escribí tu Nombre y Apellido completos ✍️.\n\nSi la consulta se hizo dentro de las últimas 24 horas, quedate tranquilo/a: la estamos procesando y te vamos a responder lo antes posible.\nSi ya pasó más tiempo, revisamos tu caso y te damos prioridad en la respuesta.",
   
+  [FSMState.NO_CLIENTE_CUIT]: "No encontramos tu CUIT en nuestra base de clientes.\n\nSi querés, te conecto con Iván para darte de alta o ayudarte.\n\nEscribí 1 para hablar con Iván, o 2 para ingresar otro CUIT.",
   [FSMState.HUMANO]: "Listo, te derivamos con el equipo. En breve te contactará un profesional del estudio. ¡Gracias! 🙌"
 } as const;

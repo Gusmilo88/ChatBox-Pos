@@ -10,8 +10,8 @@ export const REPLIES = {
   
   // CUIT
   askCuit: 'Para poder ayudarte necesito tu CUIT (11 dígitos) 😊',
-  cuitInvalid: 'El CUIT debe tener 11 dígitos. Probá otra vez 😊',
-  cuitNotFound: 'No encuentro ese CUIT en nuestra base. ¿Querés que Iván te contacte para darte el alta?',
+  cuitInvalid: 'El CUIT ingresado no es válido. Escribilo sin puntos ni guiones, por favor.',
+  cuitValidNotClient: 'No encontramos tu CUIT en nuestra base de clientes.\n\nSi querés, te conecto con Iván para darte de alta o ayudarte.\n\nEscribí 1 para hablar con Iván, o 2 para ingresar otro CUIT.',
   
   // Pago de honorarios
   paymentHonorarios: (nombre?: string) => {
@@ -19,7 +19,12 @@ export const REPLIES = {
     return `${saludo}Para pagar tus honorarios ingresá a https://app.posyasociados.com/login con tu CUIT.\n\nAhí podés pagar por Bio Libre ✅`;
   },
   
-  // Derivaciones
+  // Derivaciones específicas (FSM)
+  handoffBelen: 'Perfecto 😊\n\nTe derivo con Belén, que se encarga de facturación en el estudio.\nEn breve te va a responder.',
+  handoffElina: 'Bien 👍\n\nEste tema lo maneja Elina en el estudio.\nYa te derivo, en breve te responde.',
+  handoffIvan: 'Perfecto 😊\n\nTe derivo con Iván para ayudarte con la consulta.\nEn breve te va a responder.',
+  
+  // Derivaciones genéricas
   handoffTo: (nombre: string) => {
     return `Te derivo con ${nombre} 😊\n\nTe van a responder por este mismo chat.\n\nSi querés volver al inicio, escribí 'inicio' o 'menu'.`;
   },
@@ -27,9 +32,18 @@ export const REPLIES = {
   // Handoff activo
   handoffActive: 'Ya te derivamos con el equipo. En breve te responderán 🙌',
   
+  // Audios
+  audioNotSupported: 'Gracias por el mensaje 😊\n\nPor el momento no puedo escuchar audios.\n\n¿Podés escribirme tu consulta así te ayudo mejor?',
+  
+  // Fallback controlado (para IA)
+  fallbackMenu: 'No hay problema 😊\n\nDecime si necesitás ayuda con facturación, pagos o una consulta general.',
+  
   // Errores
   error: 'Lo siento, hubo un error. Por favor intentá de nuevo.',
   errorNoData: 'No tengo esa información disponible. Te derivo con el equipo para que te ayuden mejor.',
+  
+  // No cliente - derivación a Iván
+  noClienteDerivacion: 'Gracias. Veo que todavía no sos cliente del estudio.\n\nTe derivo con Iván para que pueda ayudarte.\nEn breve te va a responder.',
   
   // Saludo inicial PREMIUM (solo una vez por conversación)
   greetingInitial: (hasRoleOrCuit: boolean) => {

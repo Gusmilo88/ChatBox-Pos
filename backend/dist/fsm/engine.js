@@ -39,8 +39,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.FSMSessionManager = void 0;
 const states_1 = require("./states");
 const cuit_1 = require("../utils/cuit");
+const templateReplacer_1 = require("../utils/templateReplacer");
 const logger_1 = __importDefault(require("../libs/logger"));
 const clientsRepo_1 = require("../services/clientsRepo");
+const firebase_1 = require("../firebase");
 class FSMSessionManager {
     formatARS(n) {
         return n.toLocaleString('es-AR', {
@@ -48,6 +50,55 @@ class FSMSessionManager {
             currency: 'ARS',
             maximumFractionDigits: 2
         });
+    }
+    /**
+     * Helper para enviar menú interactivo o fallback a texto
+     */
+    async sendMenuInteractiveOrText(phone, nombre, displayName) {
+        const menuText = (0, templateReplacer_1.replaceNamePlaceholder)(states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU], nombre, displayName);
+        // Guard: verificar que no queden placeholders
+        if ((0, templateReplacer_1.hasUnreplacedPlaceholders)(menuText)) {
+            logger_1.default.error('template_placeholder_remaining', {
+                phone,
+                originalText: states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU].substring(0, 50)
+            });
+            const safeText = menuText.replace(/\{\{[^}]+\}\}/g, '').replace(/\s+/g, ' ').trim();
+            return [safeText || 'Hola 👋\n¿Con qué tema te ayudamos?'];
+        }
+        logger_1.default.info('template_name_ok', {
+            phone,
+            usedName: nombre || displayName || 'none',
+            hasPlaceholder: false
+        });
+        // UPGRADE PRO: Intentar enviar menú interactivo
+        try {
+            const { sendMainMenu } = await Promise.resolve().then(() => __importStar(require('../services/interactiveMenu')));
+            const interactiveResult = await sendMainMenu(phone, nombre || displayName);
+            if (interactiveResult.sent) {
+                logger_1.default.info('interactive_menu_sent', {
+                    phone,
+                    hasNombre: !!(nombre || displayName)
+                });
+                // Si se envió interactivo, no devolver texto (ya se envió)
+                return [];
+            }
+            else {
+                // Fallback a texto
+                logger_1.default.info('interactive_menu_fallback_text', {
+                    phone,
+                    reason: interactiveResult.error || 'not_supported'
+                });
+                return [interactiveResult.fallbackText || menuText];
+            }
+        }
+        catch (error) {
+            logger_1.default.warn('interactive_menu_error_fallback', {
+                phone,
+                error: error?.message
+            });
+            // Fallback a texto si falla
+            return [menuText];
+        }
     }
     constructor() {
         this.sessions = new Map();
@@ -139,6 +190,58 @@ class FSMSessionManager {
     }
     async processMessage(from, text) {
         const session = this.getOrCreateSession(from);
+        // GUARD: Verificar si hay handoff activo (desde Firestore)
+        // Si handoffTo está activo, solo permitir comandos globales o silenciar
+        try {
+            const conversationDoc = await firebase_1.collections.conversations()
+                .where('phone', '==', from)
+                .limit(1)
+                .get();
+            if (!conversationDoc.empty) {
+                const conversationData = conversationDoc.docs[0].data();
+                const handoffTo = conversationData?.handoffTo;
+                if (handoffTo) {
+                    // Handoff activo: solo permitir comandos globales o mensaje único
+                    const msg = text.trim().toLowerCase();
+                    const isGlobalCommand = ['menu', 'inicio', 'volver', 'start', 'reset', 'fin'].includes(msg);
+                    if (isGlobalCommand) {
+                        // Si es "fin", cerrar handoff
+                        if (msg === 'fin') {
+                            await firebase_1.collections.conversations().doc(conversationDoc.docs[0].id).update({
+                                handoffTo: null,
+                                handoffStatus: 'IA_ACTIVE',
+                                updatedAt: new Date()
+                            });
+                            session.state = states_1.FSMState.START;
+                            session.data = {};
+                            logger_1.default.info('handoff_closed_by_user', { phone: from, conversationId: conversationDoc.docs[0].id });
+                            return { session, replies: [states_1.STATE_TEXTS[states_1.FSMState.START]] };
+                        }
+                        // Otros comandos globales: resetear y continuar
+                        session.state = states_1.FSMState.START;
+                        session.data = {};
+                        await firebase_1.collections.conversations().doc(conversationDoc.docs[0].id).update({
+                            handoffTo: null,
+                            handoffStatus: 'IA_ACTIVE',
+                            updatedAt: new Date()
+                        });
+                        logger_1.default.info('handoff_reset_by_global_command', { phone: from, command: msg });
+                        return { session, replies: [states_1.STATE_TEXTS[states_1.FSMState.START]] };
+                    }
+                    // Si no es comando global, silenciar (no responder)
+                    logger_1.default.info('handoff_active_silencing_fsm', {
+                        phone: from,
+                        handoffTo,
+                        textPreview: text.substring(0, 50)
+                    });
+                    return { session, replies: [] }; // Silencio total
+                }
+            }
+        }
+        catch (error) {
+            logger_1.default.debug('Error verificando handoff en FSM', { error: error?.message });
+            // Continuar si falla la verificación
+        }
         // Verificar comandos globales primero
         const globalResponse = this.handleGlobalCommands(text, session);
         if (globalResponse) {
@@ -186,6 +289,8 @@ class FSMSessionManager {
                 return this.handleNoClienteResponsable(session, text);
             case states_1.FSMState.NO_CLIENTE_CONSULTA:
                 return this.handleNoClienteConsulta(session, text);
+            case states_1.FSMState.NO_CLIENTE_CUIT:
+                return await this.handleNoClienteCuit(session, text);
             case states_1.FSMState.HUMANO:
                 return [states_1.STATE_TEXTS[states_1.FSMState.HUMANO]];
             default:
@@ -194,7 +299,7 @@ class FSMSessionManager {
         }
     }
     async handleStart(session, text) {
-        const lowerText = text.toLowerCase().trim();
+        // ESTADO 0 - INICIO ABSOLUTO
         // Si es un CUIT válido, verificar si existe en la base de datos
         if ((0, cuit_1.validarCUIT)(text)) {
             try {
@@ -202,121 +307,274 @@ class FSMSessionManager {
                 const isClient = await (0, clientsRepo_1.existsByCuit)(text);
                 logger_1.default.info(`Resultado verificación CUIT ${text}: ${isClient}`);
                 if (isClient) {
+                    // CUIT válido y CLIENTE → pasar a MENU
                     session.data.cuit = text;
-                    // Obtener nombre del cliente desde la misma fuente que verifica existsByCuit
                     try {
                         const { getDb } = await Promise.resolve().then(() => __importStar(require('../firebase')));
                         const db = getDb();
                         const snapshot = await db.collection('clientes').where('cuit', '==', text).limit(1).get();
                         const nombre = snapshot.empty ? null : snapshot.docs[0].data().nombre;
-                        if (!nombre) {
-                            session.state = states_1.FSMState.NO_CLIENTE_NAME;
-                            return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
-                        }
+                        session.data.nombre = nombre || null;
                         session.state = states_1.FSMState.CLIENTE_MENU;
-                        return [`¡Hola ${nombre}! 👋 Soy el asistente 🤖 de POS & Asociados. Elegí una opción:\n\n1. Consultar mi estado general en ARCA e Ingresos Brutos\n2. Solicitar una factura electrónica\n3. Enviar las ventas del mes\n4. Agendar una reunión\n5. Hablar con Iván por otras consultas`];
+                        // Obtener displayName desde conversación si no hay nombre en Firebase
+                        let displayName = null;
+                        try {
+                            const conversationDoc = await firebase_1.collections.conversations()
+                                .where('phone', '==', session.id)
+                                .limit(1)
+                                .get();
+                            if (!conversationDoc.empty) {
+                                displayName = conversationDoc.docs[0].data()?.name || null;
+                            }
+                        }
+                        catch (error) {
+                            logger_1.default.debug('Error obteniendo displayName', { error: error?.message });
+                        }
+                        // Reemplazar placeholder con nombre real (o sin nombre si no hay)
+                        const menuText = (0, templateReplacer_1.replaceNamePlaceholder)(states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU], session.data.nombre || null, displayName);
+                        // Guard: verificar que no queden placeholders
+                        if ((0, templateReplacer_1.hasUnreplacedPlaceholders)(menuText)) {
+                            logger_1.default.error('template_placeholder_remaining', {
+                                phone: session.id,
+                                originalText: states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU].substring(0, 50)
+                            });
+                            // Fallback seguro: eliminar placeholder
+                            const safeText = menuText.replace(/\{\{[^}]+\}\}/g, '').replace(/\s+/g, ' ').trim();
+                            return [safeText || 'Hola 👋\n¿Con qué tema te ayudamos?'];
+                        }
+                        logger_1.default.info('template_name_ok', {
+                            phone: session.id,
+                            usedName: session.data.nombre || displayName || 'none',
+                            hasPlaceholder: false
+                        });
+                        return [menuText];
                     }
                     catch (error) {
                         logger_1.default.error('Error obteniendo nombre del cliente:', error);
-                        session.state = states_1.FSMState.NO_CLIENTE_NAME;
-                        return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+                        session.data.nombre = null;
+                        session.state = states_1.FSMState.CLIENTE_MENU;
+                        // Obtener displayName desde conversación
+                        let displayName = null;
+                        try {
+                            const conversationDoc = await firebase_1.collections.conversations()
+                                .where('phone', '==', session.id)
+                                .limit(1)
+                                .get();
+                            if (!conversationDoc.empty) {
+                                displayName = conversationDoc.docs[0].data()?.name || null;
+                            }
+                        }
+                        catch (error) {
+                            logger_1.default.debug('Error obteniendo displayName', { error: error?.message });
+                        }
+                        // Reemplazar placeholder (sin nombre si no hay)
+                        const menuText = (0, templateReplacer_1.replaceNamePlaceholder)(states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU], null, displayName);
+                        // Guard: verificar que no queden placeholders
+                        if ((0, templateReplacer_1.hasUnreplacedPlaceholders)(menuText)) {
+                            logger_1.default.error('template_placeholder_remaining', {
+                                phone: session.id
+                            });
+                            const safeText = menuText.replace(/\{\{[^}]+\}\}/g, '').replace(/\s+/g, ' ').trim();
+                            return [safeText || 'Hola 👋\n¿Con qué tema te ayudamos?'];
+                        }
+                        return [menuText];
                     }
                 }
                 else {
-                    session.state = states_1.FSMState.NO_CLIENTE_NAME;
-                    return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+                    // CUIT válido pero NO CLIENTE → ofrecer opciones
+                    const cuitLimpio = (0, cuit_1.limpiarCuit)(text);
+                    session.data.cuit = cuitLimpio;
+                    session.state = states_1.FSMState.NO_CLIENTE_CUIT;
+                    logger_1.default.info('cuit_valid_not_client', {
+                        cuit: cuitLimpio.substring(0, 2) + '***' + cuitLimpio.substring(8),
+                        phone: session.id
+                    });
+                    return [states_1.STATE_TEXTS[states_1.FSMState.NO_CLIENTE_CUIT]];
                 }
             }
             catch (error) {
                 logger_1.default.error('Error verificando cliente:', error);
-                session.state = states_1.FSMState.NO_CLIENTE_NAME;
-                return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+                // En caso de error, pedir CUIT nuevamente
+                return [states_1.STATE_TEXTS[states_1.FSMState.START]];
             }
         }
-        // Opción 1: Soy cliente
-        if (lowerText === '1' || lowerText.includes('soy cliente') || lowerText.includes('cliente')) {
-            return ["Perfecto! Para continuar, necesito tu CUIT (solo números)."];
+        else {
+            // CUIT inválido → pedir CUIT válido
+            session.state = states_1.FSMState.WAIT_CUIT;
+            logger_1.default.info('cuit_invalid', {
+                inputLength: text.length,
+                phone: session.id
+            });
+            return [states_1.STATE_TEXTS[states_1.FSMState.WAIT_CUIT]];
         }
-        // Opción 2: Quiero ser cliente / Consultar servicios
-        if (lowerText === '2' || lowerText.includes('quiero ser cliente') || lowerText.includes('consultar servicios') || lowerText.includes('quiero info')) {
-            session.state = states_1.FSMState.NO_CLIENTE_INTEREST;
-            return [states_1.STATE_TEXTS[states_1.FSMState.NO_CLIENTE_INTEREST]];
-        }
-        // Para CUALQUIER otro texto (hola, abc, etc.), mostrar el menú inicial
-        return [states_1.STATE_TEXTS[states_1.FSMState.START]];
     }
     async handleWaitCuit(session, text) {
+        // ESTADO 1 - VALIDACIÓN DE CUIT
         if ((0, cuit_1.validarCUIT)(text)) {
-            // Verificar si el CUIT existe en la base de datos
+            // CUIT válido, verificar si es cliente
             try {
                 logger_1.default.info(`Verificando CUIT (WaitCuit): ${text}`);
                 const isClient = await (0, clientsRepo_1.existsByCuit)(text);
                 logger_1.default.info(`Resultado verificación CUIT (WaitCuit) ${text}: ${isClient}`);
                 if (isClient) {
+                    // CUIT válido y CLIENTE → pasar a MENU
                     session.data.cuit = text;
-                    // Obtener nombre del cliente desde la misma fuente que verifica existsByCuit
                     try {
                         const { getDb } = await Promise.resolve().then(() => __importStar(require('../firebase')));
                         const db = getDb();
                         const snapshot = await db.collection('clientes').where('cuit', '==', text).limit(1).get();
                         const nombre = snapshot.empty ? null : snapshot.docs[0].data().nombre;
-                        if (!nombre) {
-                            session.state = states_1.FSMState.NO_CLIENTE_NAME;
-                            return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
-                        }
+                        session.data.nombre = nombre || null;
                         session.state = states_1.FSMState.CLIENTE_MENU;
-                        return [`¡Hola ${nombre}! 👋 Soy el asistente 🤖 de POS & Asociados. Elegí una opción:\n\n1. Consultar mi estado general en ARCA e Ingresos Brutos\n2. Solicitar una factura electrónica\n3. Enviar las ventas del mes\n4. Agendar una reunión\n5. Hablar con Iván por otras consultas`];
+                        // Obtener displayName desde conversación si no hay nombre en Firebase
+                        let displayName = null;
+                        try {
+                            const conversationDoc = await firebase_1.collections.conversations()
+                                .where('phone', '==', session.id)
+                                .limit(1)
+                                .get();
+                            if (!conversationDoc.empty) {
+                                displayName = conversationDoc.docs[0].data()?.name || null;
+                            }
+                        }
+                        catch (error) {
+                            logger_1.default.debug('Error obteniendo displayName', { error: error?.message });
+                        }
+                        // Enviar menú interactivo o texto
+                        return await this.sendMenuInteractiveOrText(session.id, session.data.nombre || null, displayName);
                     }
                     catch (error) {
                         logger_1.default.error('Error obteniendo nombre del cliente:', error);
-                        session.state = states_1.FSMState.NO_CLIENTE_NAME;
-                        return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+                        session.data.nombre = null;
+                        session.state = states_1.FSMState.CLIENTE_MENU;
+                        // Obtener displayName desde conversación
+                        let displayName = null;
+                        try {
+                            const conversationDoc = await firebase_1.collections.conversations()
+                                .where('phone', '==', session.id)
+                                .limit(1)
+                                .get();
+                            if (!conversationDoc.empty) {
+                                displayName = conversationDoc.docs[0].data()?.name || null;
+                            }
+                        }
+                        catch (error) {
+                            logger_1.default.debug('Error obteniendo displayName', { error: error?.message });
+                        }
+                        // Reemplazar placeholder (sin nombre si no hay)
+                        const menuText = (0, templateReplacer_1.replaceNamePlaceholder)(states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU], null, displayName);
+                        // Guard: verificar que no queden placeholders
+                        if ((0, templateReplacer_1.hasUnreplacedPlaceholders)(menuText)) {
+                            logger_1.default.error('template_placeholder_remaining', {
+                                phone: session.id
+                            });
+                            const safeText = menuText.replace(/\{\{[^}]+\}\}/g, '').replace(/\s+/g, ' ').trim();
+                            return [safeText || 'Hola 👋\n¿Con qué tema te ayudamos?'];
+                        }
+                        return [menuText];
                     }
                 }
                 else {
-                    session.state = states_1.FSMState.NO_CLIENTE_NAME;
-                    return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+                    // CUIT válido pero NO CLIENTE → ofrecer opciones
+                    const cuitLimpio = (0, cuit_1.limpiarCuit)(text);
+                    session.data.cuit = cuitLimpio;
+                    session.state = states_1.FSMState.NO_CLIENTE_CUIT;
+                    logger_1.default.info('cuit_valid_not_client', {
+                        cuit: cuitLimpio.substring(0, 2) + '***' + cuitLimpio.substring(8),
+                        phone: session.id
+                    });
+                    return [states_1.STATE_TEXTS[states_1.FSMState.NO_CLIENTE_CUIT]];
                 }
             }
             catch (error) {
                 logger_1.default.error('Error verificando cliente:', error);
-                session.state = states_1.FSMState.NO_CLIENTE_NAME;
-                return ['No te encuentro en nuestra base de clientes. Decime tu nombre y empresa.'];
+                return [states_1.STATE_TEXTS[states_1.FSMState.WAIT_CUIT]];
             }
         }
         else {
+            // CUIT inválido → permanecer en WAIT_CUIT
+            logger_1.default.info('cuit_invalid', {
+                inputLength: text.length,
+                phone: session.id
+            });
             return [states_1.STATE_TEXTS[states_1.FSMState.WAIT_CUIT]];
         }
     }
     async handleClienteMenu(session, text) {
+        // ESTADO 2 - MENÚ PRINCIPAL (SOLO CLIENTES)
         const raw = text.trim().toLowerCase();
-        // Opción 1: Consultar ARCA e Ingresos Brutos
-        if (raw === '1' || raw.includes('arca') || raw.includes('ingresos brutos') || raw.includes('estado')) {
-            session.state = states_1.FSMState.CLIENTE_ARCA;
-            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_ARCA]];
+        const { REPLIES } = await Promise.resolve().then(() => __importStar(require('../services/replies')));
+        // OPCIÓN 1 — FACTURACIÓN / COMPROBANTES → BELÉN
+        if (raw === '1' || raw.includes('facturación') || raw.includes('factura') || raw.includes('comprobantes') ||
+            raw.includes('monotributo') || raw.includes('vep monotributo') || raw.includes('deuda') ||
+            raw.includes('planes de pago') || raw.includes('cuotas caídas')) {
+            session.state = states_1.FSMState.HUMANO;
+            logger_1.default.info(`Sesión ${session.id} derivada a Belén (facturación/comprobantes)`);
+            return [REPLIES.handoffBelen];
         }
-        // Opción 2: Solicitar factura electrónica
-        if (raw === '2' || raw.includes('factura') || raw.includes('facturación')) {
-            session.state = states_1.FSMState.CLIENTE_FACTURA;
-            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_FACTURA]];
+        // OPCIÓN 2 — PAGOS / VEP / DEUDAS → ELINA
+        if (raw === '2' || raw.includes('pagos') || raw.includes('vep') || raw.includes('deudas') ||
+            raw.includes('vep ingresos brutos') || raw.includes('qr ingresos brutos') || raw.includes('pagos arca') ||
+            raw.includes('siradig')) {
+            session.state = states_1.FSMState.HUMANO;
+            logger_1.default.info(`Sesión ${session.id} derivada a Elina (pagos/VEP/deudas)`);
+            return [REPLIES.handoffElina];
         }
-        // Opción 3: Enviar ventas del mes
-        if (raw === '3' || raw.includes('ventas') || raw.includes('venta') || raw.includes('planilla')) {
-            session.state = states_1.FSMState.CLIENTE_VENTAS;
-            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_VENTAS]];
+        // OPCIÓN 3 — PAGAR HONORARIOS (AUTOGESTIÓN, NO DERIVA)
+        // Esta opción se maneja en botReply.ts con paymentHandler, pero aquí devolvemos el mensaje fijo
+        if (raw === '3' || raw.includes('pagar honorarios') || raw.includes('honorarios')) {
+            const nombre = session.data.nombre || 'cliente';
+            session.state = states_1.FSMState.HUMANO; // Marcar como finalizado
+            return [REPLIES.paymentHonorarios(nombre)];
         }
-        // Opción 4: Agendar reunión
-        if (raw === '4' || raw.includes('reunión') || raw.includes('agendar') || raw.includes('cita')) {
-            session.state = states_1.FSMState.CLIENTE_REUNION;
-            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_REUNION]];
+        // OPCIÓN 4 — DATOS REGISTRALES → ELINA
+        if (raw === '4' || raw.includes('datos registrales') || raw.includes('domicilio') || raw.includes('datos registrales')) {
+            session.state = states_1.FSMState.HUMANO;
+            logger_1.default.info(`Sesión ${session.id} derivada a Elina (datos registrales)`);
+            return [REPLIES.handoffElina];
         }
-        // Opción 5: Hablar con Iván
-        if (raw === '5' || raw.includes('iván') || raw.includes('ivan') || raw.includes('hablar') || raw.includes('consulta')) {
-            session.state = states_1.FSMState.CLIENTE_IVAN;
-            return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_IVAN]];
+        // OPCIÓN 5 — SUELDOS / EMPLEADA DOMÉSTICA → ELINA
+        if (raw === '5' || raw.includes('sueldos') || raw.includes('empleada doméstica') || raw.includes('casas particulares') ||
+            raw.includes('recibo de sueldo')) {
+            session.state = states_1.FSMState.HUMANO;
+            logger_1.default.info(`Sesión ${session.id} derivada a Elina (sueldos/empleada doméstica)`);
+            return [REPLIES.handoffElina];
+        }
+        // OPCIÓN 6 — CONSULTAS GENERALES → IVÁN
+        if (raw === '6' || raw.includes('consultas generales') || raw.includes('consulta general')) {
+            session.state = states_1.FSMState.HUMANO;
+            logger_1.default.info(`Sesión ${session.id} derivada a Iván (consultas generales)`);
+            return [REPLIES.handoffIvan];
+        }
+        // OPCIÓN 7 — HABLAR CON EL ESTUDIO → IVÁN
+        if (raw === '7' || raw.includes('hablar con el estudio') || raw.includes('hablar con') || raw.includes('estudio')) {
+            session.state = states_1.FSMState.HUMANO;
+            logger_1.default.info(`Sesión ${session.id} derivada a Iván (hablar con el estudio)`);
+            return [REPLIES.handoffIvan];
         }
         // Si no coincide con ninguna opción, mostrar el menú nuevamente
-        return [states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU]];
+        // Obtener displayName desde conversación
+        let displayName = null;
+        try {
+            const conversationDoc = await firebase_1.collections.conversations()
+                .where('phone', '==', session.id)
+                .limit(1)
+                .get();
+            if (!conversationDoc.empty) {
+                displayName = conversationDoc.docs[0].data()?.name || null;
+            }
+        }
+        catch (error) {
+            logger_1.default.debug('Error obteniendo displayName', { error: error?.message });
+        }
+        const menuText = (0, templateReplacer_1.replaceNamePlaceholder)(states_1.STATE_TEXTS[states_1.FSMState.CLIENTE_MENU], session.data.nombre || null, displayName);
+        // Guard: verificar que no queden placeholders
+        if ((0, templateReplacer_1.hasUnreplacedPlaceholders)(menuText)) {
+            logger_1.default.error('template_placeholder_remaining', { phone: session.id });
+            const safeText = menuText.replace(/\{\{[^}]+\}\}/g, '').replace(/\s+/g, ' ').trim();
+            return [safeText || 'Hola 👋\n¿Con qué tema te ayudamos?'];
+        }
+        return [menuText];
     }
     handleNoClienteName(session, text) {
         session.data.name = text;
@@ -485,6 +743,48 @@ class FSMSessionManager {
             return [`${nombre} te derivamos con Iván Pos para revisar tu consulta. Te contactará a la brevedad. ¡Gracias!`];
         }
         return [states_1.STATE_TEXTS[states_1.FSMState.NO_CLIENTE_CONSULTA]];
+    }
+    async handleNoClienteCuit(session, text) {
+        // CUIT válido pero NO CLIENTE - ofrecer opciones
+        const raw = text.trim().toLowerCase();
+        // Opción 1: Hablar con Iván
+        if (raw === '1' || raw.includes('ivan') || raw.includes('hablar')) {
+            session.state = states_1.FSMState.HUMANO;
+            logger_1.default.info('no_cliente_cuit_option_ivan', {
+                phone: session.id,
+                cuit: session.data.cuit ? session.data.cuit.substring(0, 2) + '***' : 'none'
+            });
+            // Guardar handoffTo en Firestore
+            try {
+                const conversationDoc = await firebase_1.collections.conversations()
+                    .where('phone', '==', session.id)
+                    .limit(1)
+                    .get();
+                if (!conversationDoc.empty) {
+                    await firebase_1.collections.conversations().doc(conversationDoc.docs[0].id).update({
+                        handoffTo: 'ivan',
+                        handoffStatus: 'HANDOFF_ACTIVE',
+                        updatedAt: new Date()
+                    });
+                }
+            }
+            catch (error) {
+                logger_1.default.debug('Error guardando handoffTo', { error: error?.message });
+            }
+            const { REPLIES } = await Promise.resolve().then(() => __importStar(require('../services/replies')));
+            return [REPLIES.handoffIvan];
+        }
+        // Opción 2: Ingresar otro CUIT
+        if (raw === '2' || raw.includes('otro') || raw.includes('cuit')) {
+            session.data.cuit = undefined; // Limpiar CUIT guardado
+            session.state = states_1.FSMState.WAIT_CUIT;
+            logger_1.default.info('no_cliente_cuit_option_retry', {
+                phone: session.id
+            });
+            return [states_1.STATE_TEXTS[states_1.FSMState.WAIT_CUIT]];
+        }
+        // Si no coincide, mostrar opciones nuevamente
+        return [states_1.STATE_TEXTS[states_1.FSMState.NO_CLIENTE_CUIT]];
     }
 }
 exports.FSMSessionManager = FSMSessionManager;

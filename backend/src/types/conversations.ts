@@ -56,6 +56,7 @@ export type IncomingMessageRequest = {
   phone: string
   text: string
   via?: 'whatsapp' | 'ia' | 'manual'
+  messageType?: string // 'text' | 'audio' | 'voice' | etc.
 }
 
 export type OutboxMessage = {

@@ -467,7 +467,7 @@ export async function getConversationById(id: string): Promise<ConversationDetai
 }
 
 export async function simulateIncoming(request: IncomingMessageRequest): Promise<{ conversationId: string }> {
-  const { phone, text, via = 'manual' } = request
+  const { phone, text, via = 'manual', messageType } = request
   
   try {
     const normalizedPhone = normalizePhone(phone)
@@ -550,7 +550,7 @@ export async function simulateIncoming(request: IncomingMessageRequest): Promise
 
     // Generar respuesta automática usando IA (principal) o FSM (fallback)
     try {
-      const botResponse = await generateBotReply(normalizedPhone, sanitizedText, conversationId);
+      const botResponse = await generateBotReply(normalizedPhone, sanitizedText, conversationId, messageType);
       
       // Verificar si la respuesta indica derivación a humano
       const isHumanTransfer = botResponse.replies.some(reply => 

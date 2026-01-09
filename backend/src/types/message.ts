@@ -9,6 +9,7 @@ export interface MessageResponse {
 
 export interface SessionData {
   name?: string;
+  nombre?: string | null; // Nombre del cliente desde Firebase (puede ser null)
   email?: string;
   interest?: string;
   cuit?: string;
