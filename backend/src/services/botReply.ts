@@ -67,6 +67,113 @@ export async function generateBotReply(
         via: 'fsm'
       };
     }
+
+    // ============================================
+    // PRE-HANDLER GLOBAL: COMANDOS DE RESET
+    // ============================================
+    // Detectar comandos globales ANTES de cualquier otro procesamiento
+    const textLower = text.trim().toLowerCase();
+    const globalCommands = ['reset', 'inicio', 'menu', 'start', 'volver'];
+    
+    if (globalCommands.includes(textLower)) {
+      logger.info('global_command_detected', {
+        command: textLower,
+        phone: maskPhone(normalizedPhone),
+        conversationId
+      });
+      
+      // Buscar conversación por phone (si no tenemos conversationId)
+      let targetConversationId = conversationId;
+      if (!targetConversationId) {
+        try {
+          const conversationSnapshot = await collections.conversations()
+            .where('phone', '==', normalizedPhone)
+            .limit(1)
+            .get();
+          
+          if (!conversationSnapshot.empty) {
+            targetConversationId = conversationSnapshot.docs[0].id;
+          }
+        } catch (error) {
+          logger.debug('Error buscando conversación para reset', {
+            error: (error as Error)?.message,
+            phone: maskPhone(normalizedPhone)
+          });
+        }
+      }
+      
+      // Resetear sesión completa en Firestore
+      if (targetConversationId) {
+        try {
+          await collections.conversations().doc(targetConversationId).update({
+            // Resetear estado
+            state: 'START',
+            // Borrar datos de cliente
+            cuit: null,
+            nombre: null,
+            clientName: null,
+            displayName: null,
+            // Borrar datos de sesión
+            topic: null,
+            subtopic: null,
+            // Cerrar handoff
+            handoffTo: null,
+            handoffStatus: 'IA_ACTIVE',
+            assignedTo: null,
+            // Resetear flags
+            initialGreetingShown: false,
+            offTopicStrikes: 0,
+            mutedUntil: null,
+            // Mantener datos básicos
+            updatedAt: new Date()
+          });
+          
+          logger.info('session_reset_done', {
+            conversationId: targetConversationId,
+            phone: maskPhone(normalizedPhone),
+            command: textLower
+          });
+        } catch (error) {
+          logger.error('error_resetting_session', {
+            conversationId: targetConversationId,
+            error: (error as Error)?.message,
+            phone: maskPhone(normalizedPhone)
+          });
+          // Continuar aunque falle el reset
+        }
+      }
+      
+      // El FSM manejará el reset cuando procese el mensaje START
+      // No necesitamos resetear la sesión FSM aquí porque el comando global
+      // será procesado por el FSM y reseteará su propia sesión
+      
+      // Responder con mensaje START exacto (no reformulado)
+      const { FSMState, STATE_TEXTS } = await import('../fsm/states');
+      const startMessage = STATE_TEXTS[FSMState.START];
+      
+      logger.info('reset_short_circuit_pipeline', {
+        command: textLower,
+        phone: maskPhone(normalizedPhone),
+        conversationId: targetConversationId,
+        repliesCount: 1,
+        shortCircuit: true
+      });
+      
+      // CORTAR TOTALMENTE el pipeline - retornar inmediatamente
+      // NO continuar con handoff, payment, FSM, IA, ni ningún otro procesamiento
+      // El return aquí debe ser respetado por el código que llama a generateBotReply
+      // y NO debe continuar procesando el mensaje
+      return {
+        replies: [startMessage],
+        via: 'fsm'
+      };
+    }
+    
+    // ============================================
+    // FIN DEL PRE-HANDLER DE RESET
+    // Si llegamos aquí, NO es un comando global de reset
+    // ============================================
+    
     // 0. Verificar si hay handoff activo (si hay, silenciar IA hasta HANDOFF_CLOSED)
     if (conversationId) {
       const handoffActive = await isHandoffActive(conversationId);
