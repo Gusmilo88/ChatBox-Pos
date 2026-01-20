@@ -24,6 +24,8 @@ exports.config = {
     sessionSecret: process.env.SESSION_SECRET || 'change-this-secret-in-production',
     dashboardOrigin: process.env.ALLOW_ORIGIN_DASHBOARD || 'http://localhost:5173',
     // Outbox Worker Configuration
+    // Default: 3000ms (3 segundos) para respuesta rápida
+    // Puede configurarse con OUTBOX_POLL_INTERVAL_MS en .env
     outboxPollIntervalMs: parseInt(process.env.OUTBOX_POLL_INTERVAL_MS || '3000', 10),
     outboxBatchSize: parseInt(process.env.OUTBOX_BATCH_SIZE || '10', 10),
     whatsappDriver: (process.env.WHATSAPP_DRIVER || 'mock'),

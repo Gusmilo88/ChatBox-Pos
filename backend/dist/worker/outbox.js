@@ -22,6 +22,10 @@ class OutboxWorker {
                 .where('status', '==', 'pending')
                 .limit(20)
                 .get();
+            logger_1.logger.info('outbox_poll_target', {
+                target: 'outbox',
+                collection: 'outbox'
+            });
             logger_1.logger.info('outbox_batch_found', {
                 count: snap.size
             });
@@ -83,17 +87,105 @@ class OutboxWorker {
                 });
             });
             // Si llegamos aquí, el lock fue exitoso
-            // Ahora procesar el envío
+            // Detectar tipo de mensaje: text (default) o interactive
+            // Compatibilidad: si no hay messageType, asumir 'text' si hay text, o 'interactive' si hay interactive
+            const messageType = data.messageType || (data.text ? 'text' : (data.interactive ? 'interactive' : 'text'));
+            const isInteractive = messageType === 'interactive' && !!data.interactive;
             logger_1.logger.info('outbox_attempt_send', {
                 id: doc.id,
                 phone: (0, replies_1.maskPhone)(data.phone),
+                messageType,
                 tries: data.tries || 0
             });
-            const result = await this.driver.sendText({
-                phone: data.phone, // Usar 'phone' (NO 'to')
-                text: data.text,
-                idempotencyKey: data.idempotencyKey ?? doc.id
-            });
+            let result;
+            if (isInteractive) {
+                // PROCESAR MENSAJE INTERACTIVE (List Message) - enviar directamente a Cloud API
+                try {
+                    const interactivePayload = data.interactive;
+                    const token = process.env.WHATSAPP_TOKEN;
+                    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+                    if (!token || !phoneNumberId) {
+                        throw new Error('WHATSAPP_TOKEN o WHATSAPP_PHONE_NUMBER_ID no configurado');
+                    }
+                    // Usar el payload tal cual (ya viene con formato Cloud API)
+                    const apiUrl = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(interactivePayload)
+                    });
+                    const responseData = await response.json();
+                    if (response.ok && response.status >= 200 && response.status < 300) {
+                        const messageId = responseData.messages?.[0]?.id;
+                        result = {
+                            ok: true,
+                            remoteId: messageId
+                        };
+                        logger_1.logger.info('whatsapp_send_interactive_ok', {
+                            id: doc.id,
+                            messageId,
+                            phone: (0, replies_1.maskPhone)(data.phone),
+                            buttonText: interactivePayload.interactive?.action?.button
+                        });
+                    }
+                    else {
+                        // Error al enviar interactive - loguear completo
+                        const errorMsg = `Meta API Error ${response.status}: ${response.statusText}`;
+                        logger_1.logger.error('interactive_send_failed', {
+                            id: doc.id,
+                            status: response.status,
+                            statusText: response.statusText,
+                            responseBody: JSON.stringify(responseData),
+                            phone: (0, replies_1.maskPhone)(data.phone),
+                            tries: data.tries || 0,
+                            errorType: 'api_error'
+                        });
+                        result = {
+                            ok: false,
+                            error: errorMsg
+                        };
+                    }
+                }
+                catch (error) {
+                    const errorMsg = error?.message ?? String(error);
+                    logger_1.logger.error('interactive_send_failed', {
+                        id: doc.id,
+                        errorType: 'exception',
+                        error: errorMsg,
+                        phone: (0, replies_1.maskPhone)(data.phone),
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+                    result = {
+                        ok: false,
+                        error: errorMsg
+                    };
+                }
+            }
+            else {
+                // PROCESAR MENSAJE TEXTO (comportamiento actual)
+                result = await this.driver.sendText({
+                    phone: data.phone,
+                    text: data.text || '',
+                    idempotencyKey: data.idempotencyKey ?? doc.id
+                });
+                if (result.ok) {
+                    logger_1.logger.info('whatsapp_send_text_ok', {
+                        id: doc.id,
+                        remoteId: result.remoteId,
+                        phone: (0, replies_1.maskPhone)(data.phone)
+                    });
+                }
+                else {
+                    logger_1.logger.error('whatsapp_send_text_failed', {
+                        id: doc.id,
+                        error: result.error,
+                        phone: (0, replies_1.maskPhone)(data.phone)
+                    });
+                }
+            }
             if (result.ok) {
                 // ÉXITO: Marcar como enviado
                 await doc.ref.update({
@@ -108,6 +200,7 @@ class OutboxWorker {
                     id: doc.id,
                     remoteId: result.remoteId,
                     phone: (0, replies_1.maskPhone)(data.phone),
+                    messageType,
                     tries: data.tries || 0
                 });
             }
@@ -127,6 +220,7 @@ class OutboxWorker {
                 logger_1.logger.error('outbox_send_failed', {
                     id: doc.id,
                     error: errorMsg,
+                    messageType,
                     tries,
                     phone: (0, replies_1.maskPhone)(data.phone),
                     nextAttemptAt: nextAttempt.toDate().toISOString()

@@ -4,6 +4,27 @@ import { simulateIncoming } from '../services/conversations'
 import { detectOperatorResponse, forwardOperatorResponseToClient, forwardClientUpdateToOperator } from '../services/operatorForwarding'
 import { getOperatorByPhone } from '../services/autoDerivation'
 import { collections } from '../firebase'
+import { markWhatsAppMessageAsRead } from '../services/whatsappSender'
+
+/**
+ * Cache de messageIds procesados para dedupe
+ * Evita procesar el mismo mensaje dos veces por reintentos del webhook
+ */
+const processedMessageIds = new Set<string>()
+const messageIdTimestamps = new Map<string, number>()
+
+// Limpiar IDs antiguos cada hora (TTL: 1 hora)
+setInterval(() => {
+  const now = Date.now()
+  const maxAge = 60 * 60 * 1000 // 1 hora en ms
+  
+  for (const [messageId, timestamp] of messageIdTimestamps.entries()) {
+    if (now - timestamp > maxAge) {
+      processedMessageIds.delete(messageId)
+      messageIdTimestamps.delete(messageId)
+    }
+  }
+}, 60 * 60 * 1000) // Ejecutar limpieza cada hora
 
 /**
  * Rutas webhook para Meta WhatsApp Cloud API
@@ -156,6 +177,43 @@ export async function handleWebhookMessage(req: Request, res: Response): Promise
             // Procesar mensajes entrantes (texto y audio)
             if (change.value?.messages && Array.isArray(change.value.messages)) {
               for (const message of change.value.messages) {
+                // DEDUPE: Verificar si este messageId ya fue procesado
+                const messageId = message.id
+                if (processedMessageIds.has(messageId)) {
+                  logger.debug('whatsapp_message_duplicate_skipped', {
+                    messageId,
+                    from: message.from ? message.from.replace(/\d(?=\d{4})/g, '*') : 'unknown',
+                    type: message.type
+                  })
+                  // Ya fue procesado, saltar sin re-procesar
+                  continue
+                }
+                
+                // Marcar como procesado ANTES de procesar (para evitar race conditions)
+                processedMessageIds.add(messageId)
+                messageIdTimestamps.set(messageId, Date.now())
+                
+                // MARCAR MENSAJE COMO "READ" (tilde azul) - instantáneo, no bloquea
+                // Esto mejora la UX mostrando que el mensaje fue leído
+                markWhatsAppMessageAsRead(messageId)
+                  .then((result) => {
+                    if (result.success) {
+                      logger.debug('whatsapp_mark_read_ok', { messageId })
+                    } else {
+                      logger.debug('whatsapp_mark_read_failed', { 
+                        messageId, 
+                        error: result.error 
+                      })
+                    }
+                  })
+                  .catch((error) => {
+                    // No bloquear el flujo si falla marcar como read
+                    logger.debug('whatsapp_mark_read_exception', {
+                      messageId,
+                      error: error instanceof Error ? error.message : 'Unknown error'
+                    })
+                  })
+                
                 // MANEJO DE AUDIOS (OBLIGATORIO)
                 if (message.type === 'audio' || message.type === 'voice') {
                   const from = message.from
@@ -199,13 +257,19 @@ export async function handleWebhookMessage(req: Request, res: Response): Promise
                     messageId: message.id
                   });
                   
-                  // Procesar como mensaje de texto con el ID seleccionado
-                  // El FSM procesará "1", "2", etc. igual que si fuera texto
+                  // Procesar como selección de menú (NO como CUIT ni texto libre)
+                  // El FSM procesará el selectedId como comando del menú
+                  logger.info('menu_selection_received', {
+                    selectedId,
+                    phone: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                    messageId: message.id
+                  });
+                  
                   simulateIncoming({
                     phone: normalizedFrom,
-                    text: selectedId, // Enviar el ID como texto (ej: "1", "2", "1.1", etc.)
+                    text: selectedId, // Enviar el ID como texto (ej: "facturacion", "pagos", etc.)
                     via: 'whatsapp',
-                    messageType: 'interactive'
+                    messageType: 'menu_selection' // Marcar como selección de menú para evitar validación CUIT
                   })
                     .then(async (result) => {
                       logger.info('whatsapp_interactive_reply_processed', {

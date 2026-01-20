@@ -15,11 +15,24 @@ export const REPLIES = {
   
   // Pago de honorarios
   paymentHonorarios: (nombre?: string) => {
-    const saludo = nombre ? `Hola ${nombre} 👋\n\n` : '';
-    return `${saludo}Para pagar tus honorarios ingresá a https://app.posyasociados.com/login con tu CUIT.\n\nAhí podés pagar por Bio Libre ✅`;
+    const saludo = nombre ? `${nombre} 👋\n\n` : '';
+    return `${saludo}Para pagar tus honorarios ingresá a:\nhttps://app.posyasociados.com/login\ncon tu CUIT.\n\nAhí podés pagar por Bio Libre ✅\n\n📲 Si necesitás ayuda adicional, te derivo con Iván.`;
   },
   
   // Derivaciones específicas (FSM)
+  handoffBelenFacturacion: '📄 Para emitir una factura electrónica necesitás enviarnos:\n- Concepto\n- Importe\n- Fecha de la operación\n- Datos del receptor (CUIT o DNI)\n\n📲 Te derivo con Belén para continuar con la emisión.',
+  handoffElinaPagos: '💰 Te ayudamos con pagos, VEP y deudas impositivas.\n\n📲 Te derivo con Elina para que te asista con este tema.',
+  handoffElinaDatosRegistrales: '📝 Para modificar o actualizar datos registrales (domicilio, actividad, etc.):\n\n📲 Te derivo con Elina para que lo gestione.',
+  handoffElinaSueldos: '👥 Para consultas sobre sueldos y empleadas domésticas:\n\n📲 Te derivo con Elina para continuar.',
+  handoffIvanOtrasConsultas: '❓ Contame en una frase tu consulta y te ayudo.\n\n📲 Según el tema, te derivo con Iván.',
+  handoffIvanHablarEstudio: '☎️ Perfecto.\n\n📲 Te derivo con Iván para que continúe la conversación.',
+  
+  // Mensajes NO CLIENTE (3 distintos, todos derivan a Iván)
+  handoffIvanNuevoCliente: '🆕 Perfecto 😊 Te derivo con Iván para que te explique los servicios y cómo empezar el alta.',
+  handoffIvanConsultaGeneral: '💬 Dale 😊 Te derivo con Iván para responder tu consulta.',
+  handoffIvanHablarEstudioNoCliente: '☎️ Perfecto. Te derivo con Iván para que continúe la conversación.',
+  
+  // Mantener respuestas legacy para compatibilidad
   handoffBelen: 'Perfecto 😊\n\nTe derivo con Belén, que se encarga de facturación en el estudio.\nEn breve te va a responder.',
   handoffElina: 'Bien 👍\n\nEste tema lo maneja Elina en el estudio.\nYa te derivo, en breve te responde.',
   handoffIvan: 'Perfecto 😊\n\nTe derivo con Iván para ayudarte con la consulta.\nEn breve te va a responder.',

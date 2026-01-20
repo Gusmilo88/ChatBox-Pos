@@ -9,14 +9,13 @@ exports.simulateIncoming = simulateIncoming;
 exports.enqueueReply = enqueueReply;
 exports.appendOperatorMessage = appendOperatorMessage;
 exports.enqueueOutbox = enqueueOutbox;
+exports.enqueueInteractiveOutbox = enqueueInteractiveOutbox;
 exports.markMessageDelivery = markMessageDelivery;
 exports.assignConversation = assignConversation;
 const firebase_1 = require("../firebase");
 const uuid_1 = require("uuid");
 const logger_1 = __importDefault(require("../libs/logger"));
 const botReply_1 = require("./botReply");
-const autoDerivation_1 = require("./autoDerivation");
-const operatorForwarding_1 = require("./operatorForwarding");
 // Normalizar phone a E.164
 function normalizePhone(phone) {
     // Remover espacios y caracteres especiales
@@ -53,45 +52,6 @@ function maskPII(text) {
 // Sanitizar texto
 function sanitizeText(text) {
     return text.trim().slice(0, 2000);
-}
-/**
- * Detecta si un mensaje contiene palabras clave de urgencia
- * Retorna true si el mensaje indica urgencia
- */
-function detectUrgency(text) {
-    if (!text || typeof text !== 'string') {
-        return false;
-    }
-    const textLower = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // Normalizar acentos
-    // Palabras clave de urgencia (sin acentos para detectar variantes)
-    const urgencyKeywords = [
-        'urgente',
-        'urgent',
-        'asap',
-        'inmediato',
-        'inmediata',
-        'emergencia',
-        'emergency',
-        'importante',
-        'important',
-        'prioritario',
-        'priority',
-        'rapido',
-        'rapida',
-        'rapid',
-        'ya',
-        'ahora',
-        'now',
-        'necesito ya',
-        'necesito ahora',
-        'necesito urgente'
-    ];
-    // Verificar si alguna palabra clave está presente
-    return urgencyKeywords.some(keyword => {
-        // Buscar palabra completa (no solo substring para evitar falsos positivos)
-        const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-        return regex.test(textLower);
-    });
 }
 async function listConversations(params) {
     const { query = '', from, to, page = 1, pageSize = 25, isClient, needsReply } = params;
@@ -475,141 +435,65 @@ async function simulateIncoming(request) {
             textLength: sanitizedText.length,
             via
         });
-        // Detectar urgencia en el mensaje del usuario ANTES de generar respuesta
-        const isUrgentMessage = detectUrgency(sanitizedText);
-        if (isUrgentMessage) {
-            logger_1.default.info('urgent_message_detected', {
-                conversationId,
-                phone: maskPII(normalizedPhone),
-                messagePreview: sanitizedText.substring(0, 50)
-            });
-        }
-        // Generar respuesta automática usando IA (principal) o FSM (fallback)
+        // FSM MÍNIMA: Procesar directamente con FSM sin lógica adicional
         try {
             const botResponse = await (0, botReply_1.generateBotReply)(normalizedPhone, sanitizedText, conversationId, messageType);
-            // Verificar si la respuesta indica derivación a humano
-            const isHumanTransfer = botResponse.replies.some(reply => reply.includes('derivamos con el equipo') ||
-                reply.includes('te contactará un profesional') ||
-                reply.includes('te derivamos'));
-            // DETECCIÓN AUTOMÁTICA DE DERIVACIÓN
-            // Analizar el mensaje del cliente para determinar a qué operador derivar
-            const derivationResult = (0, autoDerivation_1.detectDerivation)(sanitizedText);
-            let shouldAutoDerive = false;
-            let derivedOperator = null;
-            if (isHumanTransfer && derivationResult.shouldDerive && derivationResult.operator) {
-                shouldAutoDerive = true;
-                derivedOperator = derivationResult.operator;
-                logger_1.default.info('auto_derivation_detected', {
+            // VALIDACIÓN: Verificar que hay respuestas antes de encolar
+            // PERO: Si se manejó con interactive menu (handledByInteractive=true), NO disparar fallback
+            if (!botResponse || !botResponse.replies || botResponse.replies.length === 0) {
+                // Si se encoló un interactive menu, considerar como "handled" y no enviar fallback
+                if (botResponse?.handledByInteractive) {
+                    logger_1.default.info('fsm_handled_by_interactive_skip_fallback', {
+                        conversationId,
+                        phone: maskPII(normalizedPhone),
+                        text: sanitizedText.substring(0, 50)
+                    });
+                    return { conversationId };
+                }
+                // Si realmente no hay respuesta ni interactive, no enviar fallback (silencioso)
+                logger_1.default.warn('bot_response_empty_no_fallback', {
                     conversationId,
-                    operator: derivedOperator.name,
-                    reason: derivationResult.reason,
-                    phone: maskPII(normalizedPhone)
+                    phone: maskPII(normalizedPhone),
+                    text: sanitizedText.substring(0, 50)
+                });
+                return { conversationId };
+            }
+            // Encolar respuestas del bot
+            for (const reply of botResponse.replies) {
+                // Validar que el reply no esté vacío
+                if (!reply || reply.trim().length === 0) {
+                    logger_1.default.warn('empty_reply_skipped', {
+                        conversationId,
+                        phone: maskPII(normalizedPhone),
+                        replyIndex: botResponse.replies.indexOf(reply)
+                    });
+                    continue;
+                }
+                const replyIdempotencyKey = `auto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                await enqueueOutbox(conversationId, normalizedPhone, reply, replyIdempotencyKey);
+                // Guardar mensaje del sistema en la conversación
+                const systemMessageId = (0, uuid_1.v4)();
+                const systemMessageData = {
+                    ts: new Date(),
+                    from: 'system',
+                    text: reply,
+                    via: 'fsm',
+                    aiSuggested: false
+                };
+                await firebase_1.collections.messages(conversationId).doc(systemMessageId).set(systemMessageData);
+                logger_1.default.info('auto_reply_generated', {
+                    conversationId,
+                    phone: maskPII(normalizedPhone),
+                    via: botResponse.via,
+                    replyLength: reply.length
                 });
             }
-            // Marcar como needsReply si: mensaje es urgente O se deriva a humano
-            const shouldMarkAsNeedsReply = isUrgentMessage || isHumanTransfer;
-            if (botResponse.replies && botResponse.replies.length > 0) {
-                // Encolar respuestas automáticas
-                for (const reply of botResponse.replies) {
-                    const replyIdempotencyKey = `auto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                    await enqueueOutbox(conversationId, normalizedPhone, reply, replyIdempotencyKey);
-                    // Guardar mensaje del sistema en la conversación
-                    const systemMessageId = (0, uuid_1.v4)();
-                    const systemMessageData = {
-                        ts: new Date(),
-                        from: 'system',
-                        text: reply,
-                        via: botResponse.via === 'ai' ? 'ia' : 'whatsapp',
-                        aiSuggested: botResponse.via === 'ai'
-                    };
-                    await firebase_1.collections.messages(conversationId).doc(systemMessageId).set(systemMessageData);
-                    logger_1.default.info('auto_reply_generated', {
-                        conversationId,
-                        phone: maskPII(normalizedPhone),
-                        via: botResponse.via,
-                        replyLength: reply.length,
-                        isHumanTransfer,
-                        isUrgentMessage
-                    });
-                }
-                // Si se detectó derivación automática, enviar mensaje específico al cliente
-                if (shouldAutoDerive && derivedOperator) {
-                    const derivationMessage = `Te derivamos con ${derivedOperator.name}. En breve te responderá. ¡Gracias! 🙌`;
-                    const derivationIdempotencyKey = `derive-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                    await enqueueOutbox(conversationId, normalizedPhone, derivationMessage, derivationIdempotencyKey);
-                    // Guardar mensaje de derivación
-                    const derivationMessageId = (0, uuid_1.v4)();
-                    await firebase_1.collections.messages(conversationId).doc(derivationMessageId).set({
-                        ts: new Date(),
-                        from: 'system',
-                        text: derivationMessage,
-                        via: 'whatsapp',
-                        aiSuggested: false
-                    });
-                    // Obtener historial de mensajes para el operador
-                    const messagesSnapshot = await firebase_1.collections.messages(conversationId)
-                        .orderBy('ts', 'desc')
-                        .limit(10)
-                        .get();
-                    const messageHistory = messagesSnapshot.docs
-                        .reverse()
-                        .map(doc => {
-                        const data = doc.data();
-                        return {
-                            from: data.from === 'usuario' ? 'user' : 'bot',
-                            text: data.text || '',
-                            timestamp: data.ts?.toDate?.()?.toISOString() || new Date().toISOString()
-                        };
-                    });
-                    // Reenviar al operador
-                    try {
-                        await (0, operatorForwarding_1.forwardToOperator)(conversationId, normalizedPhone, conversationData?.name || null, sanitizedText, derivedOperator, messageHistory);
-                        logger_1.default.info('auto_derivation_completed', {
-                            conversationId,
-                            operator: derivedOperator.name,
-                            operatorPhone: derivedOperator.phone.replace(/\d(?=\d{4})/g, '*')
-                        });
-                    }
-                    catch (error) {
-                        const msg = (error instanceof Error) ? error.message : String(error);
-                        logger_1.default.error('error_forwarding_to_operator', {
-                            conversationId,
-                            operator: derivedOperator.name,
-                            error: msg
-                        });
-                        // No fallar la conversación si falla el reenvío
-                    }
-                }
-                // Actualizar conversación con último mensaje del sistema
-                // Marcar como needsReply si: mensaje es urgente O se deriva a humano
-                await firebase_1.collections.conversations().doc(conversationId).update({
-                    lastMessageAt: new Date(),
-                    lastMessage: botResponse.replies[0],
-                    needsReply: shouldMarkAsNeedsReply,
-                    updatedAt: new Date()
-                });
-                if (shouldMarkAsNeedsReply) {
-                    logger_1.default.info('conversation_marked_as_needs_reply', {
-                        conversationId,
-                        phone: maskPII(normalizedPhone),
-                        reason: isUrgentMessage ? 'urgent_keywords' : 'human_transfer'
-                    });
-                }
-            }
-            else {
-                // Si no hay respuesta del bot pero el mensaje es urgente, marcar igual
-                if (isUrgentMessage) {
-                    await firebase_1.collections.conversations().doc(conversationId).update({
-                        needsReply: true,
-                        updatedAt: new Date()
-                    });
-                    logger_1.default.info('conversation_marked_as_needs_reply', {
-                        conversationId,
-                        phone: maskPII(normalizedPhone),
-                        reason: 'urgent_keywords_no_bot_reply'
-                    });
-                }
-            }
+            // Actualizar conversación con último mensaje del sistema
+            await firebase_1.collections.conversations().doc(conversationId).update({
+                lastMessageAt: new Date(),
+                lastMessage: botResponse.replies[0],
+                updatedAt: new Date()
+            });
         }
         catch (error) {
             const msg = (error instanceof Error) ? error.message : String(error);
@@ -712,19 +596,37 @@ async function appendOperatorMessage(conversationId, text) {
     }
 }
 /**
- * Helper para encolar mensaje en outbox
+ * Helper para encolar mensaje en outbox (texto)
  */
 async function enqueueOutbox(conversationId, phone, text, idempotencyKey) {
     try {
-        const outboxId = (0, uuid_1.v4)();
-        const now = new Date();
+        // IDEMPOTENCIA: Si ya existe un doc con este idempotencyKey y está sent/pending, no duplicar
+        if (idempotencyKey) {
+            const existing = await firebase_1.collections.outbox()
+                .where('idempotencyKey', '==', idempotencyKey)
+                .where('status', 'in', ['pending', 'sending', 'sent'])
+                .limit(1)
+                .get();
+            if (!existing.empty) {
+                logger_1.default.debug('outbox_idempotency_skip', {
+                    conversationId,
+                    idempotencyKey,
+                    existingStatus: existing.docs[0].data().status
+                });
+                return existing.docs[0].id;
+            }
+        }
+        const outboxId = idempotencyKey || (0, uuid_1.v4)(); // Usar idempotencyKey como docId si existe
+        const now = firebase_1.Timestamp.now();
         // CONTRATO UNIFICADO: Siempre usar phone, status:'pending', tries:0
+        // IMPORTANTE: Usar Timestamp de Firestore para compatibilidad con worker
         const outboxData = {
             id: outboxId,
             conversationId,
             phone: normalizePhone(phone), // SIEMPRE 'phone' (NO 'to')
+            messageType: 'text',
             text: sanitizeText(text),
-            createdAt: now,
+            createdAt: now, // Timestamp de Firestore
             status: 'pending', // SIEMPRE 'pending' al crear
             tries: 0, // SIEMPRE 0 al crear
             idempotencyKey: idempotencyKey || undefined,
@@ -738,13 +640,94 @@ async function enqueueOutbox(conversationId, phone, text, idempotencyKey) {
             outboxId,
             phone: maskPII(phone),
             textLength: text.length,
+            messageType: 'text',
             idempotencyKey
+        });
+        // Log adicional para debugging
+        logger_1.default.info('outbox_enqueue_target', {
+            target: 'outbox',
+            collection: 'outbox',
+            driver: 'whatsapp',
+            messageType: 'text',
+            idempotencyKey: idempotencyKey || outboxId,
+            status: 'pending',
+            phone: maskPII(phone)
         });
         return outboxId;
     }
     catch (error) {
         const msg = (error instanceof Error) ? error.message : String(error);
         logger_1.default.error('error_enqueuing_message', {
+            conversationId,
+            error: msg
+        });
+        throw error;
+    }
+}
+/**
+ * Helper para encolar mensaje INTERACTIVE (List Message) en outbox
+ */
+async function enqueueInteractiveOutbox(conversationId, phone, interactivePayload, // InteractivePayload completo (con to, messaging_product, etc.)
+idempotencyKey) {
+    try {
+        // IDEMPOTENCIA: Si ya existe un doc con este idempotencyKey y está sent/pending, no duplicar
+        if (idempotencyKey) {
+            const existing = await firebase_1.collections.outbox()
+                .where('idempotencyKey', '==', idempotencyKey)
+                .where('status', 'in', ['pending', 'sending', 'sent'])
+                .limit(1)
+                .get();
+            if (!existing.empty) {
+                logger_1.default.debug('outbox_interactive_idempotency_skip', {
+                    conversationId,
+                    idempotencyKey,
+                    existingStatus: existing.docs[0].data().status
+                });
+                return existing.docs[0].id;
+            }
+        }
+        const outboxId = idempotencyKey || (0, uuid_1.v4)(); // Usar idempotencyKey como docId si existe
+        const now = firebase_1.Timestamp.now();
+        // Extraer 'to' del payload para normalizar
+        const normalizedPhone = normalizePhone(interactivePayload.to || phone);
+        const outboxData = {
+            id: outboxId,
+            conversationId,
+            phone: normalizedPhone,
+            messageType: 'interactive',
+            interactive: interactivePayload, // Payload completo para Cloud API
+            createdAt: now, // Timestamp de Firestore
+            status: 'pending',
+            tries: 0,
+            idempotencyKey: idempotencyKey || undefined,
+            error: null,
+            nextAttemptAt: null,
+            sentAt: null
+        };
+        await firebase_1.collections.outbox().doc(outboxId).set(outboxData);
+        logger_1.default.info('interactive_message_enqueued', {
+            conversationId,
+            outboxId,
+            phone: maskPII(phone),
+            messageType: 'interactive',
+            idempotencyKey,
+            buttonText: interactivePayload.interactive?.action?.button || 'N/A'
+        });
+        // Log adicional para debugging
+        logger_1.default.info('outbox_enqueue_target', {
+            target: 'outbox',
+            collection: 'outbox',
+            driver: 'whatsapp',
+            messageType: 'interactive',
+            idempotencyKey: idempotencyKey || outboxId,
+            status: 'pending',
+            phone: maskPII(phone)
+        });
+        return outboxId;
+    }
+    catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
+        logger_1.default.error('error_enqueuing_interactive_message', {
             conversationId,
             error: msg
         });

@@ -13,6 +13,8 @@ export interface SessionData {
   email?: string;
   interest?: string;
   cuit?: string;
+  cuit_raw?: string; // CUIT sin validar (raw input)
+  _inboundMessageId?: string; // ID del mensaje entrante para idempotencia de menús
 }
 
 export interface Session {

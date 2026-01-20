@@ -3,12 +3,25 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.limpiarCuit = limpiarCuit;
 exports.validarCUIT = validarCUIT;
 /**
- * Limpia un CUIT: solo números
- * @param cuit - CUIT a limpiar
- * @returns CUIT limpio (solo números)
+ * Normaliza y limpia un CUIT: trim, remover espacios internos, puntos, guiones, solo números
+ * @param cuit - CUIT a limpiar (puede venir con formato: "20.338.385.316", "20-338-385-316", "20 338 385 316", etc.)
+ * @returns CUIT limpio (solo números, 11 dígitos)
+ *
+ * Ejemplos:
+ * - "20.338.385.316" -> "20338385316"
+ * - "20-338-385-316" -> "20338385316"
+ * - "20 338 385 316" -> "20338385316"
+ * - "  20338385316  " -> "20338385316"
  */
 function limpiarCuit(cuit) {
-    return cuit.replace(/\D/g, '');
+    if (!cuit || typeof cuit !== 'string') {
+        return '';
+    }
+    // 1. Trim (remover espacios al inicio y final)
+    let normalized = cuit.trim();
+    // 2. Remover todos los caracteres no numéricos (espacios, puntos, guiones, etc.)
+    normalized = normalized.replace(/\D/g, '');
+    return normalized;
 }
 /**
  * Valida un CUIT usando el algoritmo de AFIP

@@ -1,9 +1,90 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.markWhatsAppMessageAsRead = markWhatsAppMessageAsRead;
 exports.sendWhatsAppMessage = sendWhatsAppMessage;
 exports.sendWhatsAppInteractiveList = sendWhatsAppInteractiveList;
 exports.isWhatsAppConfigured = isWhatsAppConfigured;
 const logger_1 = require("../utils/logger");
+/**
+ * Marca un mensaje entrante como "read" (tilde azul) en WhatsApp Cloud API
+ * @param messageId ID del mensaje entrante (wamid del usuario)
+ * @returns Promise con resultado de la operación
+ */
+async function markWhatsAppMessageAsRead(messageId) {
+    try {
+        // Validar parámetros
+        if (!messageId) {
+            throw new Error('messageId es requerido para marcar como leído');
+        }
+        // Obtener variables de entorno
+        const token = process.env.WHATSAPP_TOKEN;
+        const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+        // Si no hay token o phone number ID, usar modo mock
+        if (!token || !phoneNumberId) {
+            logger_1.logger.debug('whatsapp_mark_read_mock_mode', {
+                reason: !token ? 'WHATSAPP_TOKEN no definido' : 'WHATSAPP_PHONE_NUMBER_ID no definido',
+                messageId
+            });
+            return { success: true }; // Mock: siempre exitoso
+        }
+        // Preparar payload para marcar como leído
+        const payload = {
+            messaging_product: 'whatsapp',
+            status: 'read',
+            message_id: messageId
+        };
+        // URL de la API de Meta
+        const apiUrl = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
+        logger_1.logger.debug('whatsapp_marking_as_read', {
+            messageId,
+            phoneNumberId
+        });
+        // Realizar llamada a Meta API
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        const responseData = await response.json();
+        // Verificar si la respuesta es exitosa
+        if (response.ok && response.status >= 200 && response.status < 300) {
+            logger_1.logger.info('whatsapp_mark_read_ok', {
+                messageId,
+                status: response.status
+            });
+            return {
+                success: true
+            };
+        }
+        else {
+            // Error en la respuesta de Meta
+            logger_1.logger.error('whatsapp_mark_read_failed', {
+                status: response.status,
+                statusText: response.statusText,
+                responseBody: responseData,
+                messageId
+            });
+            return {
+                success: false,
+                error: `Meta API Error ${response.status}: ${response.statusText}`
+            };
+        }
+    }
+    catch (error) {
+        logger_1.logger.error('whatsapp_mark_read_error', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            messageId,
+            stack: error instanceof Error ? error.stack : undefined
+        });
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        };
+    }
+}
 /**
  * Envía un mensaje de texto a través de WhatsApp Cloud API
  * @param to Número de teléfono del destinatario (formato internacional: +541151093439)
@@ -159,20 +240,13 @@ async function sendWhatsAppInteractiveList(to, options) {
             type: 'interactive',
             interactive: {
                 type: 'list',
-                header: {
-                    type: 'text',
-                    text: options.headerText
-                },
                 body: {
                     text: options.bodyText
                 },
-                footer: options.footerText ? {
-                    text: options.footerText
-                } : undefined,
                 action: {
                     button: options.buttonText,
                     sections: options.sections.map(section => ({
-                        title: section.title,
+                        title: section.title || undefined,
                         rows: section.rows.map(row => ({
                             id: row.id,
                             title: row.title,
@@ -182,9 +256,18 @@ async function sendWhatsAppInteractiveList(to, options) {
                 }
             }
         };
-        // Remover footer si no está definido
-        if (!options.footerText) {
-            delete payload.interactive.footer;
+        // Agregar header solo si está definido
+        if (options.headerText) {
+            payload.interactive.header = {
+                type: 'text',
+                text: options.headerText
+            };
+        }
+        // Agregar footer solo si está definido
+        if (options.footerText) {
+            payload.interactive.footer = {
+                text: options.footerText
+            };
         }
         // URL de la API de Meta
         const apiUrl = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
@@ -219,13 +302,14 @@ async function sendWhatsAppInteractiveList(to, options) {
             };
         }
         else {
-            // Error en la respuesta de Meta
-            logger_1.logger.error('whatsapp_interactive_list_api_error', {
+            // Error en la respuesta de Meta - Logging mejorado para debugging
+            logger_1.logger.error('interactive_send_failed', {
                 status: response.status,
                 statusText: response.statusText,
-                responseBody: responseData,
+                responseBody: JSON.stringify(responseData),
                 to: to.replace(/\d(?=\d{4})/g, '*'),
-                phoneNumberId: phoneNumberId
+                phoneNumberId: phoneNumberId,
+                errorType: 'api_error'
             });
             return {
                 success: false,
@@ -236,14 +320,17 @@ async function sendWhatsAppInteractiveList(to, options) {
         }
     }
     catch (error) {
-        logger_1.logger.error('whatsapp_interactive_list_send_error', {
-            error: error instanceof Error ? error.message : 'Error desconocido',
-            to: to.replace(/\d(?=\d{4})/g, '*')
+        const errorMsg = error instanceof Error ? error.message : 'Error desconocido';
+        logger_1.logger.error('interactive_send_failed', {
+            error: errorMsg,
+            errorType: 'exception',
+            to: to.replace(/\d(?=\d{4})/g, '*'),
+            stack: error instanceof Error ? error.stack : undefined
         });
         return {
             success: false,
             status: 'failed',
-            error: error instanceof Error ? error.message : 'Error interno',
+            error: errorMsg,
             messageId: undefined
         };
     }
