@@ -7,6 +7,8 @@ exports.generateBotReply = generateBotReply;
 const engine_1 = require("../fsm/engine");
 const logger_1 = __importDefault(require("../libs/logger"));
 const replies_1 = require("./replies");
+const interactiveMenu_1 = require("./interactiveMenu");
+const conversations_1 = require("./conversations");
 // Instancia global del FSM manager
 let fsmManager = null;
 function getFSMManager() {
@@ -45,14 +47,33 @@ async function generateBotReply(phone, text, conversationId, messageType) {
                 conversationId,
                 phone: (0, replies_1.maskPhone)(normalizedPhone)
             });
+            // Obtener FSM para determinar contexto y mostrar menú correcto
+            const fsm = getFSMManager();
+            const session = fsm.getOrCreateSession(normalizedPhone);
+            // Determinar qué menú mostrar según lastMenuState
+            let menuPayload;
+            if (session.data.lastMenuState === 'CLIENTE_MENU') {
+                menuPayload = (0, interactiveMenu_1.buildClienteMenuInteractive)(normalizedPhone, null);
+            }
+            else if (session.data.lastMenuState === 'NOCLIENTE_MENU') {
+                menuPayload = (0, interactiveMenu_1.buildNoClienteMenuInteractive)(normalizedPhone);
+            }
+            else {
+                menuPayload = (0, interactiveMenu_1.buildRootMenuInteractive)(normalizedPhone);
+            }
+            // Encolar menú si hay conversationId
+            if (conversationId) {
+                await (0, conversations_1.enqueueInteractiveOutbox)(conversationId, normalizedPhone, menuPayload);
+            }
             return {
                 replies: [replies_1.REPLIES.audioNotSupported],
-                via: 'fsm'
+                via: 'fsm',
+                handledByInteractive: true
             };
         }
-        // FSM: Procesar con FSM (pasar conversationId si está disponible)
+        // FSM: Procesar con FSM (pasar conversationId y messageType si está disponible)
         const fsm = getFSMManager();
-        const fsmResult = await fsm.processMessage(normalizedPhone, text, undefined, conversationId);
+        const fsmResult = await fsm.processMessage(normalizedPhone, text, undefined, conversationId, messageType);
         logger_1.default.info('bot_reply_generated', {
             conversationId,
             phone: (0, replies_1.maskPhone)(normalizedPhone),

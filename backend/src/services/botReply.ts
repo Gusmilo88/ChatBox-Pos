@@ -2,6 +2,12 @@ import { FSMSessionManager } from '../fsm/engine';
 import logger from '../libs/logger';
 import { REPLIES, maskPhone } from './replies';
 import { collections } from '../firebase';
+import {
+  buildRootMenuInteractive,
+  buildClienteMenuInteractive,
+  buildNoClienteMenuInteractive
+} from './interactiveMenu';
+import { enqueueInteractiveOutbox } from './conversations';
 
 // Instancia global del FSM manager
 let fsmManager: FSMSessionManager | null = null;
@@ -52,15 +58,36 @@ export async function generateBotReply(
         conversationId,
         phone: maskPhone(normalizedPhone)
       });
+      
+      // Obtener FSM para determinar contexto y mostrar menú correcto
+      const fsm = getFSMManager();
+      const session = (fsm as any).getOrCreateSession(normalizedPhone);
+      
+      // Determinar qué menú mostrar según lastMenuState
+      let menuPayload;
+      if (session.data.lastMenuState === 'CLIENTE_MENU') {
+        menuPayload = buildClienteMenuInteractive(normalizedPhone, null);
+      } else if (session.data.lastMenuState === 'NOCLIENTE_MENU') {
+        menuPayload = buildNoClienteMenuInteractive(normalizedPhone);
+      } else {
+        menuPayload = buildRootMenuInteractive(normalizedPhone);
+      }
+      
+      // Encolar menú si hay conversationId
+      if (conversationId) {
+        await enqueueInteractiveOutbox(conversationId, normalizedPhone, menuPayload);
+      }
+      
       return {
         replies: [REPLIES.audioNotSupported],
-        via: 'fsm'
+        via: 'fsm',
+        handledByInteractive: true
       };
     }
 
-    // FSM: Procesar con FSM (pasar conversationId si está disponible)
+    // FSM: Procesar con FSM (pasar conversationId y messageType si está disponible)
     const fsm = getFSMManager();
-    const fsmResult = await fsm.processMessage(normalizedPhone, text, undefined, conversationId);
+    const fsmResult = await fsm.processMessage(normalizedPhone, text, undefined, conversationId, messageType);
     
     logger.info('bot_reply_generated', {
       conversationId,

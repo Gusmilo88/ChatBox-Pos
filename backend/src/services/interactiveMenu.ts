@@ -80,7 +80,7 @@ export function buildRootMenuInteractive(phone: string): InteractivePayload {
               {
                 id: 'root_cliente',
                 title: 'Soy Cliente',
-                description: ''
+                description: 'Necesito realizar una consulta o pedido'
               },
               {
                 id: 'root_nocliente',
@@ -136,6 +136,16 @@ export function buildClienteMenuInteractive(phone: string, nombreCliente?: strin
                 description: 'Ventas del mes'
               },
               {
+                id: 'cli_constancias_arca',
+                title: 'Constancias ARCA',
+                description: 'Solicitar constancias actualizadas'
+              },
+              {
+                id: 'cli_vep_qr_deuda',
+                title: 'VEP/QR deuda',
+                description: 'Monotributo / IIBB'
+              },
+              {
                 id: 'cli_reunion',
                 title: 'Agendar reunion',
                 description: ''
@@ -180,8 +190,8 @@ export function buildClienteEstadoMenuInteractive(phone: string, bodyText: strin
                 description: ''
               },
               {
-                id: 'cli_estado_belen',
-                title: 'Consultar a persona',
+                id: 'cli_estado_hablar',
+                title: 'Hablar con alguien',
                 description: ''
               }
             ]
@@ -363,5 +373,152 @@ export function buildNCEstadoConsultaMenuInteractive(phone: string): Interactive
   };
   
   validateRowTitles(payload, 'buildNCEstadoConsultaMenuInteractive');
+  return payload;
+}
+
+/**
+ * Construye el menú "Hablar con alguien" (4 opciones)
+ */
+export function buildHablarConAlguienMenuInteractive(phone: string): InteractivePayload {
+  const payload: InteractivePayload = {
+    messaging_product: 'whatsapp',
+    to: phone.startsWith('+') ? phone : `+${phone}`,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: {
+        text: '¿Con quién querés hablar?'
+      },
+      action: {
+        button: 'Ver opciones',
+        sections: [
+          {
+            rows: [
+              {
+                id: 'hablar_ivan',
+                title: 'Hablar con Iván',
+                description: ''
+              },
+              {
+                id: 'hablar_belen',
+                title: 'Hablar con Belén',
+                description: ''
+              },
+              {
+                id: 'hablar_elina',
+                title: 'Hablar con Elina',
+                description: ''
+              },
+              {
+                id: 'hablar_volver',
+                title: 'Volver',
+                description: ''
+              }
+            ]
+          }
+        ]
+      }
+    }
+  };
+  
+  validateRowTitles(payload, 'buildHablarConAlguienMenuInteractive');
+  return payload;
+}
+
+/**
+ * Construye el menú de confirmación de factura (Sí/No)
+ */
+export function buildFacturaConfirmMenuInteractive(phone: string, bodyText: string): InteractivePayload {
+  const payload: InteractivePayload = {
+    messaging_product: 'whatsapp',
+    to: phone.startsWith('+') ? phone : `+${phone}`,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: {
+        text: bodyText
+      },
+      action: {
+        button: 'Ver opciones',
+        sections: [
+          {
+            rows: [
+              {
+                id: 'fac_ok',
+                title: 'Sí, está bien',
+                description: ''
+              },
+              {
+                id: 'fac_bad',
+                title: 'No, hay datos erróneos',
+                description: ''
+              }
+            ]
+          }
+        ]
+      }
+    }
+  };
+  
+  validateRowTitles(payload, 'buildFacturaConfirmMenuInteractive');
+  return payload;
+}
+
+/**
+ * Construye el menú de edición de campos de factura
+ */
+export function buildFacturaEditFieldMenuInteractive(phone: string): InteractivePayload {
+  const payload: InteractivePayload = {
+    messaging_product: 'whatsapp',
+    to: phone.startsWith('+') ? phone : `+${phone}`,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: {
+        text: '¿Qué campo querés corregir?'
+      },
+      action: {
+        button: 'Ver opciones',
+        sections: [
+          {
+            rows: [
+              {
+                id: 'fac_edit_cuit',
+                title: 'Corregir CUIT',
+                description: ''
+              },
+              {
+                id: 'fac_edit_concept',
+                title: 'Corregir concepto',
+                description: ''
+              },
+              {
+                id: 'fac_edit_importe',
+                title: 'Corregir importe',
+                description: ''
+              },
+              {
+                id: 'fac_edit_fecha',
+                title: 'Corregir fecha',
+                description: ''
+              },
+              {
+                id: 'fac_edit_receptor',
+                title: 'Corregir receptor',
+                description: ''
+              },
+              {
+                id: 'fac_edit_cancel',
+                title: 'Cancelar',
+                description: ''
+              }
+            ]
+          }
+        ]
+      }
+    }
+  };
+  
+  validateRowTitles(payload, 'buildFacturaEditFieldMenuInteractive');
   return payload;
 }

@@ -22,6 +22,7 @@ type OutboxData = {
   tries: number;             // intentos (NO "retries")
   idempotencyKey?: string;
   error?: string | null;
+  lastError?: string | null;  // Último error registrado
   createdAt: Date | Timestamp;
   nextAttemptAt?: Timestamp | null;
   sentAt?: Timestamp | null;
@@ -30,9 +31,14 @@ type OutboxData = {
 
 export class OutboxWorker {
   private driver: WhatsAppDriver;
+  private currentPollInterval: number;
+  private lastMessageFoundAt: number | null = null;
+  private readonly MAX_TRIES = 3;
+  private readonly BACKOFF_INTERVALS = [3000, 10000, 30000, 60000]; // 3s → 10s → 30s → 60s
 
   constructor() {
     this.driver = createWhatsAppDriver(config.whatsappDriver);
+    this.currentPollInterval = config.outboxPollIntervalMs;
   }
 
   /**
@@ -41,26 +47,60 @@ export class OutboxWorker {
   async runBatchOnce() {
     try {
       // Consultar SOLO por status='pending' (contrato unificado)
+      // EXCLUIR mensajes 'failed' explícitamente
       const snap = await collections.outbox()
         .where('status', '==', 'pending')
         .limit(20)
         .get();
 
-      logger.info('outbox_poll_target', {
-        target: 'outbox',
-        collection: 'outbox'
-      });
+      const messageCount = snap.size;
       
-      logger.info('outbox_batch_found', {
-        count: snap.size
-      });
+      if (messageCount > 0) {
+        // Hay mensajes: resetear intervalo y timestamp
+        this.currentPollInterval = config.outboxPollIntervalMs;
+        this.lastMessageFoundAt = Date.now();
+        
+        logger.info('outbox_batch_found', {
+          count: messageCount,
+          pollInterval: this.currentPollInterval
+        });
 
-      // Procesar en paralelo (cada uno tiene su propio lock)
-      await Promise.all(snap.docs.map(doc => this.processMessage(doc)));
+        // Procesar en paralelo (cada uno tiene su propio lock)
+        await Promise.all(snap.docs.map(doc => this.processMessage(doc)));
+      } else {
+        // No hay mensajes: aplicar backoff progresivo
+        const timeSinceLastMessage = this.lastMessageFoundAt 
+          ? Date.now() - this.lastMessageFoundAt 
+          : Infinity;
+        
+        // Si pasaron más de 5 minutos sin mensajes, usar backoff máximo
+        if (timeSinceLastMessage > 5 * 60 * 1000) {
+          const backoffIndex = Math.min(
+            Math.floor(timeSinceLastMessage / (5 * 60 * 1000)) - 1,
+            this.BACKOFF_INTERVALS.length - 1
+          );
+          this.currentPollInterval = this.BACKOFF_INTERVALS[backoffIndex];
+        }
+        
+        // Log solo cada 10 ciclos para evitar spam
+        if (Math.random() < 0.1) {
+          logger.debug('outbox_no_messages_backoff', {
+            pollInterval: this.currentPollInterval,
+            timeSinceLastMessage: timeSinceLastMessage < Infinity ? Math.floor(timeSinceLastMessage / 1000) : null
+          });
+        }
+      }
     } catch (error) {
       const msg = (error as Error)?.message ?? String(error);
       logger.error('outbox_worker_batch_error', { error: msg });
     }
+  }
+
+  /**
+   * Obtiene el intervalo de polling actual (para el loop principal)
+   */
+  getPollInterval(): number {
+    return this.currentPollInterval;
   }
 
   /**
@@ -242,52 +282,98 @@ export class OutboxWorker {
           tries: data.tries || 0
         });
       } else {
-        // ERROR: Programar reintento con backoff
+        // ERROR: Verificar límite de reintentos
         const errorMsg = result.error || 'Error desconocido';
         const tries = (data.tries || 0) + 1;
-        const delayMs = Math.min(60000 * tries, 10 * 60 * 1000); // min(60s * tries, 10min)
+        
+        if (tries >= this.MAX_TRIES) {
+          // Límite alcanzado: marcar como failed y NO reintentar
+          await doc.ref.update({
+            status: 'failed',
+            tries,
+            error: errorMsg,
+            lastError: errorMsg,
+            updatedAt: Timestamp.now()
+          });
+
+          logger.error('outbox_send_failed_max_tries', {
+            id: doc.id,
+            error: errorMsg,
+            messageType,
+            tries,
+            phone: maskPhone(data.phone),
+            status: 'failed'
+          });
+        } else {
+          // Reintentar con backoff
+          const delayMs = Math.min(60000 * tries, 10 * 60 * 1000); // min(60s * tries, 10min)
+          const nextAttempt = Timestamp.fromDate(new Date(Date.now() + delayMs));
+
+          await doc.ref.update({
+            status: 'pending', // Volver a pending para reintento
+            tries,
+            error: errorMsg,
+            lastError: errorMsg,
+            nextAttemptAt: nextAttempt,
+            updatedAt: Timestamp.now()
+          });
+
+          logger.error('outbox_send_failed_retry', {
+            id: doc.id,
+            error: errorMsg,
+            messageType,
+            tries,
+            maxTries: this.MAX_TRIES,
+            phone: maskPhone(data.phone),
+            nextAttemptAt: nextAttempt.toDate().toISOString()
+          });
+        }
+      }
+    } catch (error) {
+      // EXCEPCIÓN: Verificar límite de reintentos
+      const errorMsg = (error as Error)?.message ?? String(error);
+      const tries = (data.tries || 0) + 1;
+      
+      if (tries >= this.MAX_TRIES) {
+        // Límite alcanzado: marcar como failed
+        await doc.ref.update({
+          status: 'failed',
+          tries,
+          error: errorMsg,
+          lastError: errorMsg,
+          updatedAt: Timestamp.now()
+        });
+
+        logger.error('outbox_send_exception_max_tries', {
+          id: doc.id,
+          error: errorMsg,
+          tries,
+          phone: maskPhone(data.phone),
+          status: 'failed'
+        });
+      } else {
+        // Reintentar con backoff
+        const delayMs = Math.min(60000 * tries, 10 * 60 * 1000);
         const nextAttempt = Timestamp.fromDate(new Date(Date.now() + delayMs));
 
         await doc.ref.update({
-          status: 'pending', // Volver a pending para reintento
+          status: 'pending',
           tries,
           error: errorMsg,
+          lastError: errorMsg,
           nextAttemptAt: nextAttempt,
           updatedAt: Timestamp.now()
         });
 
-        logger.error('outbox_send_failed', {
+        logger.error('outbox_send_exception_retry', {
           id: doc.id,
           error: errorMsg,
-          messageType,
           tries,
+          maxTries: this.MAX_TRIES,
           phone: maskPhone(data.phone),
           nextAttemptAt: nextAttempt.toDate().toISOString()
         });
       }
-    } catch (error) {
-      // EXCEPCIÓN: Programar reintento
-      const errorMsg = (error as Error)?.message ?? String(error);
-      const tries = (data.tries || 0) + 1;
-      const delayMs = Math.min(60000 * tries, 10 * 60 * 1000);
-      const nextAttempt = Timestamp.fromDate(new Date(Date.now() + delayMs));
-
-      // Volver a pending para reintento
-      await doc.ref.update({
-        status: 'pending',
-        tries,
-        error: errorMsg,
-        nextAttemptAt: nextAttempt,
-        updatedAt: Timestamp.now()
-      });
-
-      logger.error('outbox_send_exception', {
-        id: doc.id,
-        error: errorMsg,
-        tries,
-        phone: maskPhone(data.phone),
-        nextAttemptAt: nextAttempt.toDate().toISOString()
-      });
     }
   }
 }
@@ -310,15 +396,32 @@ async function main() {
     process.exit(0);
   });
 
-  // Loop principal: procesar batch cada X ms
-  const interval = setInterval(async () => {
+  // Loop principal: procesar batch con polling inteligente (intervalo dinámico)
+  let currentInterval = config.outboxPollIntervalMs;
+  
+  const runWithDynamicInterval = async () => {
     try {
       await worker.runBatchOnce();
+      // Actualizar intervalo según el estado del worker
+      const newInterval = worker.getPollInterval();
+      if (newInterval !== currentInterval) {
+        logger.info('outbox_poll_interval_changed', {
+          oldInterval: currentInterval,
+          newInterval: newInterval
+        });
+        currentInterval = newInterval;
+      }
     } catch (error) {
       const msg = (error as Error)?.message ?? String(error);
       logger.error('outbox_worker_interval_error', { error: msg });
     }
-  }, config.outboxPollIntervalMs);
+    
+    // Programar siguiente ejecución con intervalo dinámico
+    setTimeout(runWithDynamicInterval, currentInterval);
+  };
+  
+  // Iniciar loop
+  runWithDynamicInterval();
 
   console.log(`✅ Worker de outbox iniciado (poll interval: ${config.outboxPollIntervalMs}ms)`);
   logger.info('outbox_worker_started', {

@@ -38,6 +38,7 @@ type Cliente = {
   monto_monotributo?: number
   planes_pago?: string
   ingresos_brutos?: string
+  regimen_ingresos_brutos?: string
   info_adicional?: string
   whatsapp?: string | null
   ventas_enviadas?: 'si' | 'no'

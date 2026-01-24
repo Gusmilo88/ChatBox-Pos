@@ -174,10 +174,18 @@ export async function handleWebhookMessage(req: Request, res: Response): Promise
       for (const entry of payload.entry) {
         if (entry.changes && Array.isArray(entry.changes)) {
           for (const change of entry.changes) {
+            // OPTIMIZACIÓN: Si no hay mensajes, NO consultar Firestore
+            if (!change.value?.messages || !Array.isArray(change.value.messages) || change.value.messages.length === 0) {
+              logger.debug('webhook_no_messages_skip', {
+                entryId: entry.id,
+                changeField: change.field
+              });
+              continue;
+            }
+            
             // Procesar mensajes entrantes (texto y audio)
-            if (change.value?.messages && Array.isArray(change.value.messages)) {
-              for (const message of change.value.messages) {
-                // DEDUPE: Verificar si este messageId ya fue procesado
+            for (const message of change.value.messages) {
+                // DEDUPE: Verificar si este messageId ya fue procesado (ANTES de cualquier consulta)
                 const messageId = message.id
                 if (processedMessageIds.has(messageId)) {
                   logger.debug('whatsapp_message_duplicate_skipped', {
@@ -404,7 +412,6 @@ export async function handleWebhookMessage(req: Request, res: Response): Promise
                   processedMessages++
                 }
               }
-            }
 
             // Log de status updates (entregas, lecturas, etc.)
             if (change.value?.statuses && Array.isArray(change.value.statuses)) {
@@ -425,7 +432,6 @@ export async function handleWebhookMessage(req: Request, res: Response): Promise
       object: payload.object,
       processedMessages
     })
-
   } catch (error) {
     logger.error('whatsapp_webhook_error', {
       error: error instanceof Error ? error.message : 'Unknown error',

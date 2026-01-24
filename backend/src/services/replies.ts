@@ -46,7 +46,7 @@ export const REPLIES = {
   handoffActive: 'Ya te derivamos con el equipo. En breve te responderán 🙌',
   
   // Audios
-  audioNotSupported: 'Gracias por el mensaje 😊\n\nPor el momento no puedo escuchar audios.\n\n¿Podés escribirme tu consulta así te ayudo mejor?',
+  audioNotSupported: 'Perdón 😅 por ahora no puedo escuchar audios.\nSi querés, escribime lo que necesitás y te ayudo.',
   
   // Fallback controlado (para IA)
   fallbackMenu: 'No hay problema 😊\n\nDecime si necesitás ayuda con facturación, pagos o una consulta general.',

@@ -981,3 +981,75 @@ export async function assignConversation(
   }
 }
 
+/**
+ * Envía un mensaje interno a Belén (si está configurado BELEN_PHONE)
+ * Si no está configurado, solo loguea y no rompe el flujo
+ */
+export async function sendInternalToBelen(text: string): Promise<void> {
+  const belenPhone = process.env.BELEN_PHONE;
+  
+  if (!belenPhone || !belenPhone.trim()) {
+    logger.info('internal_to_belen_skipped', {
+      reason: 'BELEN_PHONE not configured'
+    });
+    return;
+  }
+
+  try {
+    const normalizedBelenPhone = normalizePhone(belenPhone.trim());
+    
+    // Buscar o crear conversación para Belén
+    const existingConversation = await collections.conversations()
+      .where('phone', '==', normalizedBelenPhone)
+      .limit(1)
+      .get();
+
+    let conversationId: string;
+    
+    if (existingConversation.empty) {
+      // Crear nueva conversación para Belén
+      conversationId = uuidv4();
+      const now = new Date();
+      await collections.conversations().doc(conversationId).set({
+        phone: normalizedBelenPhone,
+        name: 'Belén Maidana',
+        isClient: false,
+        lastMessageAt: now,
+        unreadCount: 1,
+        needsReply: false,
+        createdAt: now,
+        updatedAt: now
+      });
+      
+      logger.info('belen_conversation_created', {
+        conversationId,
+        phone: maskPII(normalizedBelenPhone)
+      });
+    } else {
+      conversationId = existingConversation.docs[0].id;
+      
+      // Actualizar contadores
+      await collections.conversations().doc(conversationId).update({
+        lastMessageAt: new Date(),
+        unreadCount: (existingConversation.docs[0].data().unreadCount || 0) + 1,
+        updatedAt: new Date()
+      });
+    }
+
+    // Encolar mensaje
+    await enqueueOutbox(conversationId, normalizedBelenPhone, text);
+    
+    logger.info('internal_to_belen_sent', {
+      conversationId,
+      phone: maskPII(normalizedBelenPhone),
+      textLength: text.length
+    });
+  } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
+    logger.error('error_sending_internal_to_belen', {
+      error: msg
+    });
+    // NO lanzar error: no debe romper el flujo principal
+  }
+}
+

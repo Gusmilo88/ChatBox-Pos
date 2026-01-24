@@ -12,6 +12,7 @@ exports.enqueueOutbox = enqueueOutbox;
 exports.enqueueInteractiveOutbox = enqueueInteractiveOutbox;
 exports.markMessageDelivery = markMessageDelivery;
 exports.assignConversation = assignConversation;
+exports.sendInternalToBelen = sendInternalToBelen;
 const firebase_1 = require("../firebase");
 const uuid_1 = require("uuid");
 const logger_1 = __importDefault(require("../libs/logger"));
@@ -852,5 +853,69 @@ async function assignConversation(conversationId, assignedTo, notifyClient = tru
             error: msg
         });
         throw error;
+    }
+}
+/**
+ * Envía un mensaje interno a Belén (si está configurado BELEN_PHONE)
+ * Si no está configurado, solo loguea y no rompe el flujo
+ */
+async function sendInternalToBelen(text) {
+    const belenPhone = process.env.BELEN_PHONE;
+    if (!belenPhone || !belenPhone.trim()) {
+        logger_1.default.info('internal_to_belen_skipped', {
+            reason: 'BELEN_PHONE not configured'
+        });
+        return;
+    }
+    try {
+        const normalizedBelenPhone = normalizePhone(belenPhone.trim());
+        // Buscar o crear conversación para Belén
+        const existingConversation = await firebase_1.collections.conversations()
+            .where('phone', '==', normalizedBelenPhone)
+            .limit(1)
+            .get();
+        let conversationId;
+        if (existingConversation.empty) {
+            // Crear nueva conversación para Belén
+            conversationId = (0, uuid_1.v4)();
+            const now = new Date();
+            await firebase_1.collections.conversations().doc(conversationId).set({
+                phone: normalizedBelenPhone,
+                name: 'Belén Maidana',
+                isClient: false,
+                lastMessageAt: now,
+                unreadCount: 1,
+                needsReply: false,
+                createdAt: now,
+                updatedAt: now
+            });
+            logger_1.default.info('belen_conversation_created', {
+                conversationId,
+                phone: maskPII(normalizedBelenPhone)
+            });
+        }
+        else {
+            conversationId = existingConversation.docs[0].id;
+            // Actualizar contadores
+            await firebase_1.collections.conversations().doc(conversationId).update({
+                lastMessageAt: new Date(),
+                unreadCount: (existingConversation.docs[0].data().unreadCount || 0) + 1,
+                updatedAt: new Date()
+            });
+        }
+        // Encolar mensaje
+        await enqueueOutbox(conversationId, normalizedBelenPhone, text);
+        logger_1.default.info('internal_to_belen_sent', {
+            conversationId,
+            phone: maskPII(normalizedBelenPhone),
+            textLength: text.length
+        });
+    }
+    catch (error) {
+        const msg = (error instanceof Error) ? error.message : String(error);
+        logger_1.default.error('error_sending_internal_to_belen', {
+            error: msg
+        });
+        // NO lanzar error: no debe romper el flujo principal
     }
 }
