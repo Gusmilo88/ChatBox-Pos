@@ -2,14 +2,16 @@ import { Session, SessionData } from '../types/message';
 import { FSMState, STATE_TEXTS } from './states';
 import logger from '../libs/logger';
 import { collections, Timestamp } from '../firebase';
-import { enqueueInteractiveOutbox, sendInternalToBelen } from '../services/conversations';
+import { enqueueInteractiveOutbox, sendInternalToBelen, sendInternalToIvan } from '../services/conversations';
 import {
   buildRootMenuInteractive,
+  buildClienteTipoSelectorMenuInteractive,
   buildClienteMenuInteractive,
   buildClienteEstadoMenuInteractive,
   buildNoClienteMenuInteractive,
   buildNCAltaMenuInteractive,
   buildNCPlanMenuInteractive,
+  buildNCRIMenuInteractive,
   buildNCEstadoConsultaMenuInteractive,
   buildHablarConAlguienMenuInteractive,
   buildFacturaConfirmMenuInteractive,
@@ -17,6 +19,9 @@ import {
 } from '../services/interactiveMenu';
 import { getClienteByCuit } from '../services/clientsRepo';
 import { getFraseDerivacion } from './derivations';
+import { isHandoffToHuman } from '../utils/handoffCommand';
+import { formatARS } from '../utils/formatARS';
+import { isPaymentIntent, isMontoCommand } from '../utils/paymentIntent';
 
 /**
  * Helper para normalizar comandos de texto
@@ -35,23 +40,21 @@ function isListoCommand(text: string): boolean {
   const normalized = normalizeCommand(text);
   const sinonimos = [
     'listo',
-    'termine',
-    'terminado',
+    'lito',
+    'lisot',
     'ya',
+    'ok',
+    'termine',
+    'fin',
+    'finalizar',
+    'finalice',
+    'terminado',
     'ya está',
     'ya termine',
     'completo',
     'enviado'
   ];
   return sinonimos.includes(normalized);
-}
-
-/**
- * Verifica si el texto es el comando HABLAR CON ALGUIEN
- */
-function isHablarConAlguienCommand(text: string): boolean {
-  const normalized = normalizeCommand(text);
-  return normalized.includes('hablar') && normalized.includes('alguien');
 }
 
 /**
@@ -206,10 +209,10 @@ async function buildEstadoArcaMessage(cuit: string): Promise<string> {
       CATEGORIA_MONO = c.categoria_monotributo || 'No disponible';
       REGIMEN_IIBB = c.regimen_ingresos_brutos || 'No disponible';
       
-      // MONOTRIBUTO: deuda (number) -> >0 "Con deuda $X", else "Sin deuda"
+      // MONOTRIBUTO: deuda (number) -> >0 "Con deuda $X" (formateado AR), else "Sin deuda"
       const deudaNum = Number(c.deuda ?? 0);
       if (deudaNum > 0) {
-        MONO_ESTADO = `Con deuda $${String(deudaNum)}`;
+        MONO_ESTADO = `Con deuda ${formatARS(deudaNum)}`;
       } else {
         MONO_ESTADO = 'Sin deuda';
       }
@@ -250,15 +253,15 @@ async function buildEstadoArcaMessage(cuit: string): Promise<string> {
 
   return `📌 Estado general impositivo
 
-Cliente: ${NOMBRE}
-CUIT: ${CUIT}
-Categoría de Monotributo: ${CATEGORIA_MONO}
-Régimen de Ingresos Brutos: ${REGIMEN_IIBB}
+*Cliente:* ${NOMBRE}
+*CUIT:* ${CUIT}
+*Categoría de Monotributo:* ${CATEGORIA_MONO}
+*Régimen de Ingresos Brutos:* ${REGIMEN_IIBB}
 
-Situación actual:
-🧾 Monotributo: ${MONO_ESTADO}
-🏛️ Ingresos Brutos: ${IIBB_ESTADO}
-📄 Planes de pago vigentes: ${PLANES_ESTADO}
+*Situación actual:*
+🧾 *Monotributo:* ${MONO_ESTADO}
+🏛️ *Ingresos Brutos:* ${IIBB_ESTADO}
+📄 *Planes de pago vigentes:* ${PLANES_ESTADO}
 
 ℹ️ Esta información refleja el estado general registrado al día de hoy.
 
@@ -385,12 +388,39 @@ export class FSMSessionManager {
   ): Promise<{ session: Session; replies: string[]; handledByInteractive?: boolean }> {
     const session = this.getOrCreateSession(from);
     
+    // 🔧 COMANDO RESET (QA - Solo para número de Gus)
+    const GUS_QA_PHONE = '+5491125522465';
+    const isResetCommand = text.trim().toLowerCase() === 'reset';
+    if (isResetCommand && from === GUS_QA_PHONE) {
+      // Limpiar sesión completamente
+      session.state = FSMState.ROOT;
+      session.data = {
+        // Mantener solo campos técnicos mínimos
+        _inboundMessageId: inboundMessageId,
+        _messageType: messageType
+      };
+      session.lastActivityAt = new Date();
+      
+      logger.info('qa_reset_executed', {
+        phone: from.replace(/\d(?=\d{4})/g, '*'),
+        conversationId: conversationId || 'none'
+      });
+      
+      return {
+        session,
+        replies: ['✔️ Listo. Reinicié la conversación.\nEscribí *hola* para empezar.'],
+        handledByInteractive: false
+      };
+    }
+    
     // Almacenar inboundMessageId temporalmente en la sesión
     if (inboundMessageId) {
       session.data._inboundMessageId = inboundMessageId;
     }
     
-    // Almacenar messageType para usar en handlers
+    // Almacenar messageType para usar en handlers (solo para referencia, NO usar para decisiones)
+    // CRÍTICO: Las decisiones de tipo deben usar siempre el messageType del mensaje actual (currentMessageType)
+    // NO usar session.data._messageType para determinar si es media o texto
     if (messageType) {
       session.data._messageType = messageType;
     }
@@ -428,8 +458,8 @@ export class FSMSessionManager {
       });
     }
 
-    // Procesar según estado actual
-    const result = await this.processState(session, text, targetConversationId, inboundMessageId);
+    // Procesar según estado actual (pasar messageType actual, no de sesión)
+    const result = await this.processState(session, text, targetConversationId, inboundMessageId, messageType);
 
     logger.info('fsm_message_processed', {
       sessionId: session.id,
@@ -450,30 +480,263 @@ export class FSMSessionManager {
     session: Session,
     text: string,
     conversationId: string | null,
-    inboundMessageId?: string
+    inboundMessageId?: string,
+    currentMessageType?: string
   ): Promise<{ replies: string[]; handledByInteractive?: boolean }> {
     const raw = text.trim().toLowerCase();
     const textUpper = text.trim().toUpperCase();
+    
+    // IMPORTANTE: Usar messageType del mensaje ACTUAL, no de sesión previa
+    // El messageType debe venir del payload actual (currentMessageType)
+    // CRÍTICO: Si currentMessageType no está definido, asumir 'text' (no usar sesión previa para evitar arrastre de tipos)
+    const messageType = currentMessageType !== undefined ? currentMessageType : (text.trim().length > 0 ? 'text' : undefined);
+    
 
-    // 1️⃣ DETECCIÓN DE HONORARIOS (SOLO CLIENTES) - ANTES DE CUALQUIER OTRO PROCESAMIENTO
-    // Solo si el usuario es CLIENTE (tiene CUIT en sesión)
-    if (session.data.cuit_raw) {
-      const honorariosKeywords = ['honorarios', 'pagar honorarios', 'pago honorarios'];
-      const hasHonorarios = honorariosKeywords.some(keyword => 
-        textUpper.includes(keyword.toUpperCase())
-      );
+    // 1️⃣ DETECCIÓN DE PAGO DE HONORARIOS Y COMANDO MONTO
+    // Solo en estados no-sensibles (menús/idle)
+    const paymentEnabledStates = [
+      FSMState.ROOT,
+      FSMState.CLIENTE_MENU,
+      FSMState.NOCLIENTE_MENU,
+      FSMState.FINALIZA,
+      FSMState.CLIENTE_ESTADO_GENERAL,
+      FSMState.CLIENTE_REUNION,
+      FSMState.CLIENTE_HABLAR_CON_ALGUIEN,
+      FSMState.NC_ALTA_MENU,
+      FSMState.NC_PLAN_MENU,
+      FSMState.NC_RI_MENU,
+      FSMState.NC_ESTADO_CONSULTA
+    ];
+    
+    if (paymentEnabledStates.includes(session.state as FSMState)) {
+      // A) Comando MONTO
+      if (isMontoCommand(text)) {
+        // Si está logueado como cliente
+        if (session.data.cuit_raw) {
+          try {
+            const clienteResult = await getClienteByCuit(session.data.cuit_raw);
+            if (clienteResult.exists && clienteResult.data) {
+              const cliente = clienteResult.data;
+              const monto = cliente.deuda_honorarios;
+              
+              if (monto !== undefined && monto !== null && monto > 0) {
+                const nombre = cliente.nombre || 'Cliente';
+                const montoFormateado = formatARS(monto);
+                return { 
+                  replies: [`${nombre} tu monto a abonar es de: ${montoFormateado}`, getCierreAleatorio()] 
+                };
+              } else {
+                return { replies: [STATE_TEXTS.HONORARIOS_MONTO_NO_DISPONIBLE] };
+              }
+            } else {
+              return { replies: [STATE_TEXTS.HONORARIOS_MONTO_NO_DISPONIBLE] };
+            }
+          } catch (error) {
+            logger.debug('Error obteniendo monto de honorarios', { error: (error as Error)?.message });
+            return { replies: [STATE_TEXTS.HONORARIOS_MONTO_NO_DISPONIBLE] };
+          }
+        } else {
+          // No está logueado: pedir CUIT y guardar flag
+          session.data.pendingHonorariosMonto = true;
+          session.state = FSMState.CLIENTE_PEDIR_CUIT;
+          return { replies: [STATE_TEXTS.HONORARIOS_PEDIR_CUIT] };
+        }
+      }
       
-      if (hasHonorarios) {
-        // NO derivar, responder con texto específico
-        // NO sacar del flujo si está esperando datos (ej: factura)
-        // Solo responder con el texto de honorarios
-        return { replies: [STATE_TEXTS.HONORARIOS_RESPUESTA] };
+      // B) Intención de pago (nuevas keywords)
+      if (isPaymentIntent(text)) {
+        // Si está logueado como cliente
+        if (session.data.cuit_raw) {
+          return { replies: [STATE_TEXTS.HONORARIOS_RESPUESTA] };
+        } else {
+          // No está logueado: pedir CUIT y guardar flag
+          session.data.pendingHonorariosMonto = true;
+          session.state = FSMState.CLIENTE_PEDIR_CUIT;
+          return { replies: [STATE_TEXTS.HONORARIOS_PEDIR_CUIT] };
+        }
+      }
+    }
+
+    // 2️⃣ COMANDO GLOBAL "HABLAR CON ALGUIEN" — antes del handler del estado
+    // En estados de menú/estado: encolar menú Hablar (Iván/Belén/Elina/Volver) y NO reenviar el estado.
+    // Excluir: adjuntos (image/video/document/audio/file) y estados "esperando datos" (ahí ya lo maneja el handler).
+    // IMPORTANTE: Usar messageType del mensaje ACTUAL, no de sesión previa
+    const isAttachment = messageType === 'image' || messageType === 'video' || messageType === 'document' || messageType === 'audio' || messageType === 'file';
+    const waitingDataStates = [
+      FSMState.CLIENTE_PEDIR_CUIT,
+      FSMState.CLIENTE_FACTURA_PEDIR_DATOS,
+      FSMState.CLIENTE_FACTURA_CONFIRM,
+      FSMState.CLIENTE_FACTURA_EDIT_FIELD,
+      FSMState.CLIENTE_VENTAS_INFO,
+      FSMState.NC_ALTA_REQUISITOS,
+      FSMState.NC_PLAN_REQUISITOS
+    ];
+    const handoffEnabledStates = [
+      FSMState.ROOT,
+      FSMState.CLIENTE_ESTADO_GENERAL,
+      FSMState.CLIENTE_MENU,
+      FSMState.CLIENTE_REUNION,
+      FSMState.CLIENTE_HABLAR_CON_ALGUIEN,
+      FSMState.NOCLIENTE_MENU,
+      FSMState.NC_ALTA_MENU,
+      FSMState.NC_PLAN_MENU,
+      FSMState.NC_RI_MENU,
+      FSMState.NC_ESTADO_CONSULTA
+    ];
+
+    if (!isAttachment && isHandoffToHuman(text) && handoffEnabledStates.includes(session.state as FSMState) && !waitingDataStates.includes(session.state as FSMState)) {
+      if (session.state !== FSMState.CLIENTE_HABLAR_CON_ALGUIEN) {
+        session.data.hablarVolverState = session.state;
+      }
+      session.state = FSMState.CLIENTE_HABLAR_CON_ALGUIEN;
+      session.data.lastMenuState = 'CLIENTE_HABLAR_CON_ALGUIEN';
+      const menuPayload = buildHablarConAlguienMenuInteractive(session.id);
+      return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+    }
+
+    // 2.5️⃣ PRE-HANDLER: LISTO en estados expectsMedia (ANTES del bloque de media)
+    // Si el estado espera media y el mensaje actual es texto LISTO, procesarlo ANTES del bloque de media
+    // para evitar que el bloque de media se ejecute incorrectamente
+    const expectsMediaStates = [
+      FSMState.CLIENTE_VENTAS_INFO,
+      FSMState.CLIENTE_FACTURA_PEDIR_DATOS,
+      FSMState.NC_ALTA_REQUISITOS,
+      FSMState.NC_PLAN_REQUISITOS
+    ];
+    // Estados que permiten consulta libre (audio/media/texto) - NO deben ser interceptados por bloque de media global
+    const consultaLibreStates = [
+      FSMState.CLIENTE_RI_CONSULTA_LIBRE,
+      FSMState.CLIENTE_OTRO_CONSULTA_LIBRE
+    ];
+    const expectsMedia = expectsMediaStates.includes(session.state as FSMState);
+    const isConsultaLibre = consultaLibreStates.includes(session.state as FSMState);
+    
+    // Si el estado espera media y el mensaje actual es texto (no media)
+    if (expectsMedia && !isAttachment && (messageType === 'text' || messageType === undefined)) {
+      // Si es LISTO, dejar que continúe al switch (los handlers específicos lo procesarán)
+      if (isListoCommand(text)) {
+        logger.info('listo_processed_prehandler', {
+          stateKey: session.state,
+          textPreview: text.substring(0, 20),
+          messageType: messageType
+        });
+        // NO ejecutar bloque de media, dejar continuar al switch
+        // El handler específico procesará LISTO correctamente
+      } else {
+        // Si es texto normal (no LISTO), responder guiado y NO ejecutar bloque de media
+        // Los handlers específicos manejarán esto, pero para evitar confusión, responder aquí
+        // y dejar que el switch continúe normalmente
+      }
+    }
+
+    // 3️⃣ MANEJO CENTRAL DE MEDIA (imágenes/archivos/videos) — SOLO para media real
+    // IMPORTANTE: Este bloque solo se ejecuta si messageType ACTUAL es realmente media (image/document/video/audio/file)
+    // NO debe ejecutarse para texto, incluso si el estado espera media
+    // Para texto en estados expectsMedia, los handlers específicos manejan LISTO y otros comandos
+    // CRÍTICO: Usar messageType del mensaje ACTUAL, no de sesión previa
+    // CRÍTICO: Solo ejecutar si realmente es media (verificación explícita de messageType)
+    // CRÍTICO: NUNCA ejecutar si messageType es 'text' o undefined
+    
+    // PRIMERO: Verificar si es texto - si es texto, NO ejecutar bloque de media (salir temprano)
+    const isTextMessage = messageType === 'text' || (messageType === undefined && text.trim().length > 0);
+    if (isTextMessage) {
+      // Es texto: NO ejecutar bloque de media, continuar al switch
+      // Los handlers específicos manejarán el texto (LISTO, guiado, etc.)
+      // NO loguear media_received ni media_ack_sent para texto
+    } else {
+      // NO es texto: verificar si es media real
+      const isMediaType = messageType === 'image' || messageType === 'video' || messageType === 'document' || messageType === 'audio' || messageType === 'file' || messageType === 'sticker';
+      
+      // CRÍTICO: Si es estado de consulta libre, NO interceptar aquí - dejar que el handler específico lo maneje
+      if (isMediaType && isConsultaLibre) {
+        // Es media en estado de consulta libre: NO ejecutar bloque de media global, continuar al switch
+        // El handler específico (handleClienteRIConsultaLibre / handleClienteOtroConsultaLibre) lo procesará
+      } else if (isMediaType) {
+        // Es media real en otros estados: ejecutar bloque de media
+        // Log solo cuando realmente es media (usar messageType actual)
+        logger.info('media_received', {
+          type: messageType,
+          state: session.state,
+          expectsMedia,
+          conversationId
+        });
+
+        if (expectsMedia) {
+          // A) Estado espera media Y realmente llegó media: responder con recordatorio LISTO (mantener estado)
+          logger.info('media_ack_sent', {
+            type: messageType,
+            state: session.state
+          });
+          return { 
+            replies: ['Perfecto 👍\nRecibimos el archivo que enviaste.\n\nSi aún tenés más información para adjuntar, podés hacerlo ahora.\n\nCuando finalices, escribí la palabra *LISTO* para continuar.']
+          };
+        } else {
+          // B) Estado NO espera media: responder con texto + menú contextual
+          let menuPayload;
+          let chosenMenu = 'ROOT';
+
+          // Determinar menú contextual
+          if (session.data.cuit_raw) {
+            // Cliente identificado
+            let nombreCliente: string | null = null;
+            try {
+              const clienteResult = await getClienteByCuit(session.data.cuit_raw);
+              if (clienteResult.exists && clienteResult.data?.nombre) {
+                nombreCliente = clienteResult.data.nombre;
+              }
+            } catch (error) {
+              logger.debug('Error obteniendo nombre del cliente para menú media', { error: (error as Error)?.message });
+            }
+            menuPayload = buildClienteMenuInteractive(session.id, nombreCliente);
+            chosenMenu = 'CLIENTE_MENU';
+            session.data.lastMenuState = 'CLIENTE_MENU';
+          } else if (session.data.lastMenuState === 'NOCLIENTE_MENU') {
+            // No-cliente (último menú fue no-cliente)
+            menuPayload = buildNoClienteMenuInteractive(session.id);
+            chosenMenu = 'NOCLIENTE_MENU';
+            session.data.lastMenuState = 'NOCLIENTE_MENU';
+          } else {
+            // Root (no se puede determinar)
+            menuPayload = buildRootMenuInteractive(session.id);
+            chosenMenu = 'ROOT';
+            session.data.lastMenuState = 'ROOT';
+          }
+
+          logger.info('media_prompt_sent', {
+            type: messageType,
+            state: session.state,
+            prompt: 'contextual_menu',
+            chosenMenu
+          });
+
+          // Determinar texto según contexto
+          let responseText = '';
+          if (session.data.cuit_raw) {
+            // Cliente logueado
+            responseText = 'Perdón 😅\nEn este momento no estoy esperando archivos o imágenes.\n\n👉 Elegí una opción del menú y te ayudo enseguida.';
+            session.state = FSMState.CLIENTE_MENU;
+          } else {
+            // No cliente
+            responseText = 'Perdón 😅\nEn este momento no estoy esperando archivos o imágenes.\n\n👉 Elegí una opción del menú para continuar.';
+            if (chosenMenu === 'NOCLIENTE_MENU') {
+              session.state = FSMState.NOCLIENTE_MENU;
+            } else {
+              session.state = FSMState.ROOT;
+            }
+          }
+          
+          await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+          return { replies: [responseText], handledByInteractive: true };
+        }
       }
     }
 
     switch (session.state) {
       case FSMState.ROOT:
         return await this.handleRoot(session, raw, conversationId, inboundMessageId);
+      
+      case FSMState.CLIENTE_TIPO_SELECTOR:
+        return await this.handleClienteTipoSelector(session, raw, conversationId, inboundMessageId);
       
       case FSMState.CLIENTE_PEDIR_CUIT:
         return await this.handleClientePedirCuit(session, text, conversationId, inboundMessageId);
@@ -485,7 +748,7 @@ export class FSMSessionManager {
         return await this.handleClienteEstadoGeneral(session, raw, conversationId, inboundMessageId);
       
       case FSMState.CLIENTE_FACTURA_PEDIR_DATOS:
-        return await this.handleClienteFacturaPedirDatos(session, text, conversationId, inboundMessageId, session.data._messageType as string | undefined);
+        return await this.handleClienteFacturaPedirDatos(session, text, conversationId, inboundMessageId, messageType);
       
       case FSMState.CLIENTE_FACTURA_CONFIRM:
         return await this.handleClienteFacturaConfirm(session, raw, conversationId, inboundMessageId);
@@ -494,13 +757,19 @@ export class FSMSessionManager {
         return await this.handleClienteFacturaEditField(session, text, conversationId, inboundMessageId);
       
       case FSMState.CLIENTE_VENTAS_INFO:
-        return await this.handleClienteVentasInfo(session, text, session.data._messageType as string | undefined);
+        return await this.handleClienteVentasInfo(session, text, messageType);
       
       case FSMState.CLIENTE_REUNION:
         return await this.handleClienteReunion(session);
       
       case FSMState.CLIENTE_HABLAR_CON_ALGUIEN:
         return await this.handleClienteHablarConAlguien(session, raw, conversationId, inboundMessageId);
+      
+      case FSMState.CLIENTE_RI_CONSULTA_LIBRE:
+        return await this.handleClienteRIConsultaLibre(session, text, conversationId, inboundMessageId, messageType);
+      
+      case FSMState.CLIENTE_OTRO_CONSULTA_LIBRE:
+        return await this.handleClienteOtroConsultaLibre(session, text, conversationId, inboundMessageId, messageType);
       
       case FSMState.NOCLIENTE_MENU:
         return await this.handleNoClienteMenu(session, raw, conversationId, inboundMessageId);
@@ -509,13 +778,16 @@ export class FSMSessionManager {
         return await this.handleNCAltaMenu(session, raw, conversationId, inboundMessageId);
       
       case FSMState.NC_ALTA_REQUISITOS:
-        return await this.handleNCAltaRequisitos(session, text, session.data._messageType as string | undefined);
+        return await this.handleNCAltaRequisitos(session, text, messageType);
       
       case FSMState.NC_PLAN_MENU:
         return await this.handleNCPlanMenu(session, raw, conversationId, inboundMessageId);
       
       case FSMState.NC_PLAN_REQUISITOS:
-        return await this.handleNCPlanRequisitos(session, text, session.data._messageType as string | undefined);
+        return await this.handleNCPlanRequisitos(session, text, messageType);
+      
+      case FSMState.NC_RI_MENU:
+        return await this.handleNCRIMenu(session, raw, conversationId, inboundMessageId);
       
       case FSMState.NC_ESTADO_CONSULTA:
         return await this.handleNCEstadoConsulta(session, text, conversationId, inboundMessageId);
@@ -542,8 +814,10 @@ export class FSMSessionManager {
   ): Promise<{ replies: string[]; handledByInteractive?: boolean }> {
     // Si es una selección de menú del ROOT
     if (raw === 'root_cliente') {
-      session.state = FSMState.CLIENTE_PEDIR_CUIT;
-      return { replies: [STATE_TEXTS[FSMState.CLIENTE_PEDIR_CUIT]] };
+      session.state = FSMState.CLIENTE_TIPO_SELECTOR;
+      session.data.lastMenuState = 'CLIENTE_TIPO_SELECTOR';
+      const menuPayload = buildClienteTipoSelectorMenuInteractive(session.id, STATE_TEXTS[FSMState.CLIENTE_TIPO_SELECTOR]);
+      return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
     }
     
     if (raw === 'root_nocliente') {
@@ -557,6 +831,52 @@ export class FSMSessionManager {
     session.state = FSMState.ROOT;
     session.data.lastMenuState = 'ROOT';
     const menuPayload = buildRootMenuInteractive(session.id);
+    return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+  }
+
+  private async handleClienteTipoSelector(
+    session: Session,
+    raw: string,
+    conversationId: string | null,
+    inboundMessageId?: string
+  ): Promise<{ replies: string[]; handledByInteractive?: boolean }> {
+    // Si es una selección del menú de tipo de cliente
+    if (raw === 'cli_tipo_monotributo') {
+      // Monotributista: flujo actual (pedir CUIT)
+      session.state = FSMState.CLIENTE_PEDIR_CUIT;
+      return { replies: [STATE_TEXTS[FSMState.CLIENTE_PEDIR_CUIT]] };
+    }
+    
+    if (raw === 'cli_tipo_ri') {
+      // Responsable Inscripto: derivar a consulta libre
+      session.state = FSMState.CLIENTE_RI_CONSULTA_LIBRE;
+      // Limpiar datos previos si existen
+      session.data.consulta_libre_text = '';
+      session.data.consulta_libre_textCount = 0;
+      session.data.consulta_libre_media = [];
+      if (session.data.consultaLibreLastAckAtByState) {
+        delete session.data.consultaLibreLastAckAtByState[FSMState.CLIENTE_RI_CONSULTA_LIBRE];
+      }
+      return { replies: [STATE_TEXTS[FSMState.CLIENTE_RI_CONSULTA_LIBRE]] };
+    }
+    
+    if (raw === 'cli_tipo_otro') {
+      // Otro tipo: derivar a consulta libre
+      session.state = FSMState.CLIENTE_OTRO_CONSULTA_LIBRE;
+      // Limpiar datos previos si existen
+      session.data.consulta_libre_text = '';
+      session.data.consulta_libre_textCount = 0;
+      session.data.consulta_libre_media = [];
+      if (session.data.consultaLibreLastAckAtByState) {
+        delete session.data.consultaLibreLastAckAtByState[FSMState.CLIENTE_OTRO_CONSULTA_LIBRE];
+      }
+      return { replies: [STATE_TEXTS[FSMState.CLIENTE_OTRO_CONSULTA_LIBRE]] };
+    }
+
+    // Estado inicial: mostrar menú de tipo de cliente
+    session.state = FSMState.CLIENTE_TIPO_SELECTOR;
+    session.data.lastMenuState = 'CLIENTE_TIPO_SELECTOR';
+    const menuPayload = buildClienteTipoSelectorMenuInteractive(session.id, STATE_TEXTS[FSMState.CLIENTE_TIPO_SELECTOR]);
     return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
   }
 
@@ -579,7 +899,7 @@ export class FSMSessionManager {
       };
     }
     
-    // d) Si SÍ existe: guardar en sesión y continuar al menú cliente
+    // d) Si SÍ existe: guardar en sesión
     const data = clienteResult.data;
     session.data.cuit_raw = cuitLimpio;
     session.data.cliente = { nombre: data.nombre, cuit: data.cuit || cuitLimpio };
@@ -595,6 +915,37 @@ export class FSMSessionManager {
       }
     }
 
+    // e) Si hay flag pendingHonorariosMonto, responder con el monto y limpiar flag
+    if (session.data.pendingHonorariosMonto) {
+      session.data.pendingHonorariosMonto = false;
+      const monto = data.deuda_honorarios;
+      
+      if (monto !== undefined && monto !== null && monto > 0) {
+        const nombre = data.nombre || 'Cliente';
+        const montoFormateado = formatARS(monto);
+        session.state = FSMState.CLIENTE_MENU;
+        session.data.lastMenuState = 'CLIENTE_MENU';
+        const menuPayload = buildClienteMenuInteractive(session.id, data.nombre || null);
+        // Encolar menú y responder monto
+        await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+        return { 
+          replies: [`${nombre} tu monto a abonar es de: ${montoFormateado}`, getCierreAleatorio()],
+          handledByInteractive: true
+        };
+      } else {
+        // No hay monto: ir al menú cliente y responder mensaje
+        session.state = FSMState.CLIENTE_MENU;
+        session.data.lastMenuState = 'CLIENTE_MENU';
+        const menuPayload = buildClienteMenuInteractive(session.id, data.nombre || null);
+        await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+        return { 
+          replies: [STATE_TEXTS.HONORARIOS_MONTO_NO_DISPONIBLE],
+          handledByInteractive: true
+        };
+      }
+    }
+
+    // f) Flujo normal: continuar al menú cliente
     session.state = FSMState.CLIENTE_MENU;
     session.data.lastMenuState = 'CLIENTE_MENU';
     const menuPayload = buildClienteMenuInteractive(session.id, data.nombre || null);
@@ -741,19 +1092,13 @@ Solicita: VEP o QR para cancelar deuda de Monotributo`;
     inboundMessageId?: string,
     messageType?: string
   ): Promise<{ replies: string[]; handledByInteractive?: boolean }> {
-    // Si es adjunto (foto/video/documento) -> responder guiando SIEMPRE
-    if (messageType === 'image' || messageType === 'video' || messageType === 'document') {
-      return { replies: ['Te leo 🙂 Cuando termines de enviar todo, escribí *LISTO*.\nSi preferís, escribí *HABLAR CON ALGUIEN*.'] };
-    }
-    
-    // Si es HABLAR CON ALGUIEN -> derivar a Iván
-    if (isHablarConAlguienCommand(text)) {
-      session.state = FSMState.FINALIZA;
-      return { replies: [getFraseDerivacion('Iván Pos'), getCierreAleatorio()] };
-    }
-    
-    // Si es LISTO -> parsear datos y mostrar confirmación
-    if (isListoCommand(text)) {
+    // IMPORTANTE: Verificar LISTO PRIMERO (solo si NO es media) para evitar responder "Recibimos archivo" cuando es texto
+    // Si es LISTO (y es texto, no media) -> parsear datos y mostrar confirmación
+    if (isListoCommand(text) && messageType !== 'image' && messageType !== 'video' && messageType !== 'document' && messageType !== 'audio' && messageType !== 'file') {
+      logger.info('listo_processed', {
+        stateKey: session.state,
+        textPreview: text.substring(0, 20)
+      });
       // Inicializar array de mensajes si no existe
       if (!session.data.factura_raw_messages) {
         session.data.factura_raw_messages = [];
@@ -782,6 +1127,11 @@ Entiendo que la factura deberia quedar asi:
       session.state = FSMState.CLIENTE_FACTURA_CONFIRM;
       const menuPayload = buildFacturaConfirmMenuInteractive(session.id, confirmText);
       return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+    }
+    
+    // Si es adjunto (foto/video/documento/audio/file) -> responder guiando SIEMPRE
+    if (messageType === 'image' || messageType === 'video' || messageType === 'document' || messageType === 'audio' || messageType === 'file') {
+      return { replies: ['Perfecto 👍\nRecibimos el archivo que enviaste.\n\nSi aún tenés más información para adjuntar, podés hacerlo ahora.\n\nCuando finalices, escribí la palabra *LISTO* para continuar.'] };
     }
     
     // Cualquier otro texto: acumular y responder guiado
@@ -955,21 +1305,26 @@ Entiendo que la factura deberia quedar asi:
     text: string,
     messageType?: string
   ): { replies: string[]; handledByInteractive?: boolean } {
-    // Si es adjunto (foto/video/documento) -> responder guiando SIEMPRE
-    if (messageType === 'image' || messageType === 'video' || messageType === 'document') {
-      return { replies: ['Te leo 🙂 Cuando termines de enviar todo, escribí *LISTO*.\nSi preferís, escribí *HABLAR CON ALGUIEN*.'] };
+    // IMPORTANTE: Verificar LISTO PRIMERO (solo si NO es media) para evitar responder "Recibimos archivo" cuando es texto
+    // Si es LISTO (y es texto, no media) -> responder texto específico y finalizar
+    if (isListoCommand(text) && messageType !== 'image' && messageType !== 'video' && messageType !== 'document' && messageType !== 'audio' && messageType !== 'file') {
+      logger.info('listo_processed', {
+        stateKey: session.state,
+        textPreview: text.substring(0, 20)
+      });
+      session.state = FSMState.FINALIZA;
+      return { replies: ['Entendido 🙂 le enviaré la documentación a Belén Maidana.', getCierreAleatorio()] };
+    }
+    
+    // Si es adjunto (foto/video/documento/audio/file) -> responder guiando SIEMPRE
+    if (messageType === 'image' || messageType === 'video' || messageType === 'document' || messageType === 'audio' || messageType === 'file') {
+      return { replies: ['Perfecto 👍\nRecibimos el archivo que enviaste.\n\nSi aún tenés más información para adjuntar, podés hacerlo ahora.\n\nCuando finalices, escribí la palabra *LISTO* para continuar.'] };
     }
     
     // Si es HABLAR CON ALGUIEN -> derivar a Iván
-    if (isHablarConAlguienCommand(text)) {
+    if (isHandoffToHuman(text)) {
       session.state = FSMState.FINALIZA;
       return { replies: [getFraseDerivacion('Iván Pos'), getCierreAleatorio()] };
-    }
-    
-    // Si es LISTO -> responder texto específico y finalizar
-    if (isListoCommand(text)) {
-      session.state = FSMState.FINALIZA;
-      return { replies: ['Entendido 🙂 le enviaré la documentación a Belén Maidana.', getCierreAleatorio()] };
     }
     
     // Si es PLANILLA -> enviar instrucciones y seguir esperando
@@ -986,6 +1341,447 @@ Entiendo que la factura deberia quedar asi:
   private handleClienteReunion(session: Session): { replies: string[]; handledByInteractive?: boolean } {
     session.state = FSMState.FINALIZA;
     return { replies: [getCierreAleatorio()] };
+  }
+
+  private async handleClienteRIConsultaLibre(
+    session: Session,
+    text: string,
+    conversationId: string | null,
+    inboundMessageId?: string,
+    messageType?: string
+  ): Promise<{ replies: string[]; handledByInteractive?: boolean }> {
+    // Inicializar campos si no existen
+    if (!session.data.consulta_libre_text) {
+      session.data.consulta_libre_text = '';
+    }
+    if (!session.data.consulta_libre_media) {
+      session.data.consulta_libre_media = [];
+    }
+    if (!session.data.consultaLibreLastAckAtByState) {
+      session.data.consultaLibreLastAckAtByState = {};
+    }
+
+    // Constante para cooldown de ACK (12 segundos)
+    const ACK_COOLDOWN_MS = 12000;
+
+    // Helper para verificar si debe enviar ACK (throttle)
+    const stateKey = session.state;
+    const shouldSendAck = (): boolean => {
+      const lastAck = session.data.consultaLibreLastAckAtByState![stateKey];
+      if (!lastAck) return true; // Primer mensaje
+      return Date.now() - lastAck >= ACK_COOLDOWN_MS;
+    };
+
+    // Helper para actualizar timestamp de ACK
+    const updateAckTimestamp = (): void => {
+      session.data.consultaLibreLastAckAtByState![stateKey] = Date.now();
+    };
+
+    // 1️⃣ COMANDO LISTO: procesar y derivar a Iván
+    if (isListoCommand(text) && messageType !== 'image' && messageType !== 'video' && messageType !== 'document' && messageType !== 'audio' && messageType !== 'file') {
+      const hasText = session.data.consulta_libre_text.trim().length > 0;
+      const hasMedia = session.data.consulta_libre_media.length > 0;
+      
+      logger.info('consulta_libre_listo', {
+        state: session.state,
+        textLen: session.data.consulta_libre_text.length,
+        audiosCount: session.data.consulta_libre_media.filter(m => m.type === 'audio' || m.type === 'voice').length,
+        mediaCount: session.data.consulta_libre_media.length
+      });
+
+      // Si no hay contenido: pedir que envíe consulta
+      if (!hasText && !hasMedia) {
+        return { 
+          replies: ['Antes enviame tu consulta (texto o audio). Cuando termines, escribí LISTO.'] 
+        };
+      }
+
+      // Generar resumen para Iván
+      const phone = session.id;
+      const cuit = session.data.cuit_raw || '(sin CUIT)';
+      const textos = session.data.consulta_libre_text.trim() || '(sin texto)';
+      
+      // Contar audios y otros media
+      const audios = session.data.consulta_libre_media.filter(m => m.type === 'audio' || m.type === 'voice');
+      const otrosMedia = session.data.consulta_libre_media.filter(m => m.type !== 'audio' && m.type !== 'voice');
+      const textCount = session.data.consulta_libre_textCount || 0;
+      const audiosCount = audios.length;
+      const archivosCount = otrosMedia.length;
+      
+      let mediaInfo = '';
+      if (audios.length > 0) {
+        mediaInfo += `Audios: ${audios.length}`;
+      }
+      if (otrosMedia.length > 0) {
+        if (mediaInfo) mediaInfo += ', ';
+        mediaInfo += `Otros archivos: ${otrosMedia.length}`;
+      }
+      if (!mediaInfo) {
+        mediaInfo = 'Sin archivos adjuntos';
+      }
+
+      // 1️⃣ MENSAJE RESUMEN VISIBLE (unificado con derivación)
+      const mensajeResumen = `🔴 CONSULTA PRIORITARIA – RESPONSABLE INSCRIPTO
+━━━━━━━━━━━━━━━━━━━━━━
+Gracias por tu mensaje.
+
+📝 Mensajes enviados: ${textCount}
+🎧 Audios enviados: ${audiosCount}
+📎 Archivos enviados: ${archivosCount}
+
+Listo ✅ Ya le enviamos tu consulta a Iván.
+Te va a responder a la brevedad.`;
+
+      // 2️⃣ MENSAJE INTERNO (para Iván)
+      const mensajeInterno = `🔴 CONSULTA PRIORITARIA - Responsable Inscripto / Sociedades
+
+📞 Teléfono: ${phone}
+${cuit !== '(sin CUIT)' ? `🆔 CUIT: ${cuit}` : ''}
+
+📝 Consulta:
+${textos}
+
+📎 ${mediaInfo}
+
+---
+Esta consulta fue enviada desde el chatbot. El usuario escribió LISTO para finalizar.`;
+
+      // Enviar a Iván
+      await sendInternalToIvan(mensajeInterno);
+
+      // Limpiar datos de sesión completamente
+      session.data.consulta_libre_text = '';
+      session.data.consulta_libre_textCount = 0;
+      session.data.consulta_libre_media = [];
+      if (session.data.consultaLibreLastAckAtByState) {
+        delete session.data.consultaLibreLastAckAtByState[stateKey];
+      }
+
+      // Finalizar y volver a ROOT (sin enviar menú automático)
+      session.state = FSMState.ROOT;
+      return { 
+        replies: [
+          mensajeResumen,
+          getCierreAleatorio()
+        ] 
+      };
+    }
+
+    // 2️⃣ COMANDO HABLAR CON ALGUIEN: derivar normalmente
+    if (isHandoffToHuman(text)) {
+      session.state = FSMState.FINALIZA;
+      return { replies: [getFraseDerivacion('Iván Pos'), getCierreAleatorio()] };
+    }
+
+    // 3️⃣ AUDIO: acumular referencia y responder ACK
+    if (messageType === 'audio' || messageType === 'voice') {
+      session.data.consulta_libre_media.push({
+        type: messageType,
+        mediaId: inboundMessageId,
+        messageId: inboundMessageId,
+        ts: new Date()
+      });
+
+      logger.info('consulta_libre_received', {
+        state: session.state,
+        messageType: messageType,
+        textPreview: '',
+        hasMediaId: !!inboundMessageId
+      });
+
+      return { 
+        replies: ['✅ Perfecto, recibimos tu AUDIO. Podés enviar más información si querés. Cuando termines, escribí LISTO.'] 
+      };
+    }
+
+    // 4️⃣ IMAGEN/DOCUMENTO/VIDEO: acumular referencia y responder ACK
+    if (messageType === 'image' || messageType === 'document' || messageType === 'video' || messageType === 'file') {
+      session.data.consulta_libre_media.push({
+        type: messageType,
+        mediaId: inboundMessageId,
+        messageId: inboundMessageId,
+        ts: new Date()
+      });
+
+      logger.info('consulta_libre_received', {
+        state: session.state,
+        messageType: messageType,
+        textPreview: '',
+        hasMediaId: !!inboundMessageId
+      });
+
+      return { 
+        replies: ['✅ Perfecto, recibimos tu ARCHIVO. Podés enviar más información. Cuando termines, escribí LISTO.'] 
+      };
+    }
+
+    // 5️⃣ TEXTO: acumular y responder guiado (con throttling restrictivo)
+    if (messageType === 'text' || messageType === undefined) {
+      // SIEMPRE guardar (no perder nada)
+      if (text.trim().length > 0) {
+        // Incrementar contador de mensajes de texto
+        session.data.consulta_libre_textCount = (session.data.consulta_libre_textCount || 0) + 1;
+        // Append con saltos de línea
+        if (session.data.consulta_libre_text) {
+          session.data.consulta_libre_text += '\n\n' + text.trim();
+        } else {
+          session.data.consulta_libre_text = text.trim();
+        }
+      }
+
+      logger.info('consulta_libre_received', {
+        state: session.state,
+        messageType: 'text',
+        textPreview: text.substring(0, 50),
+        hasMediaId: false
+      });
+
+      // Throttling restrictivo: responder solo si es el primer mensaje o pasa el throttle
+      if (shouldSendAck()) {
+        updateAckTimestamp();
+        return { 
+          replies: ['Perfecto ✅ Cuando termines, escribí LISTO.'] 
+        };
+      }
+
+      // No responder si no pasa throttle (evitar spam)
+      return { replies: [] };
+    }
+
+    // Fallback: mantener estado
+    return { 
+      replies: ['Podés enviar tu consulta por texto o audio. Cuando termines, escribí LISTO.'] 
+    };
+  }
+
+  private async handleClienteOtroConsultaLibre(
+    session: Session,
+    text: string,
+    conversationId: string | null,
+    inboundMessageId?: string,
+    messageType?: string
+  ): Promise<{ replies: string[]; handledByInteractive?: boolean }> {
+    // Inicializar campos si no existen
+    if (!session.data.consulta_libre_text) {
+      session.data.consulta_libre_text = '';
+    }
+    if (session.data.consulta_libre_textCount === undefined) {
+      session.data.consulta_libre_textCount = 0;
+    }
+    if (!session.data.consulta_libre_media) {
+      session.data.consulta_libre_media = [];
+    }
+    if (!session.data.consultaLibreLastAckAtByState) {
+      session.data.consultaLibreLastAckAtByState = {};
+    }
+
+    // Constante para cooldown de ACK (12 segundos)
+    const ACK_COOLDOWN_MS = 12000;
+
+    // Helper para verificar si debe enviar ACK (throttle)
+    const stateKey = session.state;
+    const shouldSendAck = (): boolean => {
+      const lastAck = session.data.consultaLibreLastAckAtByState![stateKey];
+      if (!lastAck) return true; // Primer mensaje
+      return Date.now() - lastAck >= ACK_COOLDOWN_MS;
+    };
+
+    // Helper para actualizar timestamp de ACK
+    const updateAckTimestamp = (): void => {
+      session.data.consultaLibreLastAckAtByState![stateKey] = Date.now();
+    };
+
+    // 1️⃣ COMANDO LISTO: procesar y derivar al equipo
+    if (isListoCommand(text) && messageType !== 'image' && messageType !== 'video' && messageType !== 'document' && messageType !== 'audio' && messageType !== 'file') {
+      const hasText = session.data.consulta_libre_text.trim().length > 0;
+      const hasMedia = session.data.consulta_libre_media.length > 0;
+      
+      logger.info('consulta_libre_listo', {
+        state: session.state,
+        textLen: session.data.consulta_libre_text.length,
+        audiosCount: session.data.consulta_libre_media.filter(m => m.type === 'audio' || m.type === 'voice').length,
+        mediaCount: session.data.consulta_libre_media.length
+      });
+
+      // Si no hay contenido: pedir que envíe consulta
+      if (!hasText && !hasMedia) {
+        return { 
+          replies: ['Antes enviame tu consulta (texto o audio). Cuando termines, escribí LISTO.'] 
+        };
+      }
+
+      // Generar resumen para el equipo (usar sendInternalToBelen como genérico, o crear función genérica)
+      const phone = session.id;
+      const cuit = session.data.cuit_raw || '(sin CUIT)';
+      const textos = session.data.consulta_libre_text.trim() || '(sin texto)';
+      
+      // Contar audios y otros media
+      const audios = session.data.consulta_libre_media.filter(m => m.type === 'audio' || m.type === 'voice');
+      const otrosMedia = session.data.consulta_libre_media.filter(m => m.type !== 'audio' && m.type !== 'voice');
+      const textCount = session.data.consulta_libre_textCount || 0;
+      const audiosCount = audios.length;
+      const archivosCount = otrosMedia.length;
+      
+      let mediaInfo = '';
+      if (audios.length > 0) {
+        mediaInfo += `Audios: ${audios.length}`;
+      }
+      if (otrosMedia.length > 0) {
+        if (mediaInfo) mediaInfo += ', ';
+        mediaInfo += `Otros archivos: ${otrosMedia.length}`;
+      }
+      if (!mediaInfo) {
+        mediaInfo = 'Sin archivos adjuntos';
+      }
+
+      // 1️⃣ MENSAJE RESUMEN VISIBLE (unificado con derivación)
+      const mensajeResumen = `🟡 NUEVA CONSULTA – OTRO TIPO DE CLIENTE
+━━━━━━━━━━━━━━━━━━━━━━
+Gracias por tu mensaje.
+
+📝 Mensajes enviados: ${textCount}
+🎧 Audios enviados: ${audiosCount}
+📎 Archivos enviados: ${archivosCount}
+
+Listo ✅ Ya enviamos tu consulta al equipo.
+Te van a responder a la brevedad.`;
+
+      // 2️⃣ MENSAJE INTERNO (para el equipo)
+      const mensajeInterno = `📋 CONSULTA - Otro tipo de cliente
+
+📞 Teléfono: ${phone}
+${cuit !== '(sin CUIT)' ? `🆔 CUIT: ${cuit}` : ''}
+
+📝 Consulta:
+${textos}
+
+📎 ${mediaInfo}
+
+---
+Esta consulta fue enviada desde el chatbot. El usuario escribió LISTO para finalizar.`;
+
+      // Enviar al equipo (usar sendInternalToBelen como genérico por ahora)
+      await sendInternalToBelen(mensajeInterno);
+
+      // Limpiar datos de sesión completamente
+      session.data.consulta_libre_text = '';
+      session.data.consulta_libre_textCount = 0;
+      session.data.consulta_libre_media = [];
+      if (session.data.consultaLibreLastAckAtByState) {
+        delete session.data.consultaLibreLastAckAtByState[stateKey];
+      }
+
+      // Finalizar y volver a ROOT (sin enviar menú automático)
+      session.state = FSMState.ROOT;
+      return { 
+        replies: [
+          mensajeResumen,
+          getCierreAleatorio()
+        ] 
+      };
+    }
+
+    // 2️⃣ COMANDO HABLAR CON ALGUIEN: derivar normalmente
+    if (isHandoffToHuman(text)) {
+      session.state = FSMState.FINALIZA;
+      return { replies: [getFraseDerivacion('Iván Pos'), getCierreAleatorio()] };
+    }
+
+    // 3️⃣ AUDIO: acumular referencia y responder ACK (con throttle)
+    if (messageType === 'audio' || messageType === 'voice') {
+      // SIEMPRE guardar (no perder nada)
+      session.data.consulta_libre_media.push({
+        type: messageType,
+        mediaId: inboundMessageId,
+        messageId: inboundMessageId,
+        ts: new Date()
+      });
+
+      logger.info('consulta_libre_received', {
+        state: session.state,
+        messageType: messageType,
+        textPreview: '',
+        hasMediaId: !!inboundMessageId
+      });
+
+      // SOLO enviar ACK si pasa el throttle
+      if (shouldSendAck()) {
+        updateAckTimestamp();
+        return { 
+          replies: ['✅ Perfecto, recibimos tu AUDIO. Podés enviar más información si querés. Cuando termines, escribí LISTO.'] 
+        };
+      }
+
+      // No responder si no pasa throttle (evitar spam)
+      return { replies: [] };
+    }
+
+    // 4️⃣ IMAGEN/DOCUMENTO/VIDEO: acumular referencia y responder ACK (con throttle)
+    if (messageType === 'image' || messageType === 'document' || messageType === 'video' || messageType === 'file') {
+      // SIEMPRE guardar (no perder nada)
+      session.data.consulta_libre_media.push({
+        type: messageType,
+        mediaId: inboundMessageId,
+        messageId: inboundMessageId,
+        ts: new Date()
+      });
+
+      logger.info('consulta_libre_received', {
+        state: session.state,
+        messageType: messageType,
+        textPreview: '',
+        hasMediaId: !!inboundMessageId
+      });
+
+      // SOLO enviar ACK si pasa el throttle
+      if (shouldSendAck()) {
+        updateAckTimestamp();
+        return { 
+          replies: ['✅ Perfecto, recibimos tu ARCHIVO. Podés enviar más información si querés. Cuando termines, escribí LISTO.'] 
+        };
+      }
+
+      // No responder si no pasa throttle (evitar spam)
+      return { replies: [] };
+    }
+
+    // 5️⃣ TEXTO: acumular y responder guiado (con throttling restrictivo)
+    if (messageType === 'text' || messageType === undefined) {
+      // SIEMPRE guardar (no perder nada)
+      if (text.trim().length > 0) {
+        // Incrementar contador de mensajes de texto
+        session.data.consulta_libre_textCount = (session.data.consulta_libre_textCount || 0) + 1;
+        // Append con saltos de línea
+        if (session.data.consulta_libre_text) {
+          session.data.consulta_libre_text += '\n\n' + text.trim();
+        } else {
+          session.data.consulta_libre_text = text.trim();
+        }
+      }
+
+      logger.info('consulta_libre_received', {
+        state: session.state,
+        messageType: 'text',
+        textPreview: text.substring(0, 50),
+        hasMediaId: false
+      });
+
+      // Throttling restrictivo: responder solo si es el primer mensaje o pasa el throttle
+      if (shouldSendAck()) {
+        updateAckTimestamp();
+        return { 
+          replies: ['Perfecto ✅ Cuando termines, escribí LISTO.'] 
+        };
+      }
+
+      // No responder si no pasa throttle (evitar spam)
+      return { replies: [] };
+    }
+
+    // Fallback: mantener estado
+    return { 
+      replies: ['Podés enviar tu consulta por texto o audio. Cuando termines, escribí LISTO.'] 
+    };
   }
 
   private async handleClienteHablarConAlguien(
@@ -1010,9 +1806,63 @@ Entiendo que la factura deberia quedar asi:
     }
     
     if (raw === 'hablar_volver') {
-      // Volver al menú de estado general
-      session.state = FSMState.CLIENTE_ESTADO_GENERAL;
-      const menuPayload = buildClienteEstadoMenuInteractive(session.id, STATE_TEXTS[FSMState.CLIENTE_ESTADO_GENERAL]);
+      const volverA = session.data.hablarVolverState || FSMState.CLIENTE_ESTADO_GENERAL;
+      session.state = volverA;
+      delete session.data.hablarVolverState;
+
+      if (volverA === FSMState.CLIENTE_ESTADO_GENERAL) {
+        const cuit = session.data.cuit_raw || '';
+        const body = await buildEstadoArcaMessage(cuit);
+        const menuPayload = buildClienteEstadoMenuInteractive(session.id, body);
+        return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+      }
+      if (volverA === FSMState.CLIENTE_MENU) {
+        let nombre: string | null = null;
+        if (session.data.cuit_raw) {
+          try {
+            const r = await getClienteByCuit(session.data.cuit_raw);
+            if (r.exists && r.data?.nombre) nombre = r.data.nombre;
+          } catch (_) {}
+        }
+        const menuPayload = buildClienteMenuInteractive(session.id, nombre);
+        return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+      }
+      if (volverA === FSMState.NOCLIENTE_MENU) {
+        const menuPayload = buildNoClienteMenuInteractive(session.id);
+        return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+      }
+      if (volverA === FSMState.ROOT) {
+        const menuPayload = buildRootMenuInteractive(session.id);
+        return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+      }
+      if (volverA === FSMState.NC_ALTA_MENU) {
+        const menuPayload = buildNCAltaMenuInteractive(session.id, STATE_TEXTS.NC_ALTA_TEXTO_PLAN);
+        return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+      }
+      if (volverA === FSMState.NC_PLAN_MENU) {
+        const menuPayload = buildNCPlanMenuInteractive(session.id, STATE_TEXTS[FSMState.NC_PLAN_MENU]);
+        return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+      }
+      if (volverA === FSMState.NC_ESTADO_CONSULTA) {
+        const menuPayload = buildNCEstadoConsultaMenuInteractive(session.id);
+        return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+      }
+      if (volverA === FSMState.CLIENTE_REUNION) {
+        session.state = FSMState.CLIENTE_MENU;
+        let nombre: string | null = null;
+        if (session.data.cuit_raw) {
+          try {
+            const r = await getClienteByCuit(session.data.cuit_raw);
+            if (r.exists && r.data?.nombre) nombre = r.data.nombre;
+          } catch (_) {}
+        }
+        const menuPayload = buildClienteMenuInteractive(session.id, nombre);
+        return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+      }
+      // Fallback: estado general
+      const cuit = session.data.cuit_raw || '';
+      const body = await buildEstadoArcaMessage(cuit);
+      const menuPayload = buildClienteEstadoMenuInteractive(session.id, body);
       return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
     }
 
@@ -1042,8 +1892,10 @@ Entiendo que la factura deberia quedar asi:
     }
     
     if (raw === 'nc_ri') {
-      session.state = FSMState.FINALIZA;
-      return { replies: ['Perfecto, en breve te contactaré con Iván ☎️.', getCierreAleatorio()] };
+      session.state = FSMState.NC_RI_MENU;
+      // Enviar texto del plan RI + menú en UN SOLO interactive
+      const menuPayload = buildNCRIMenuInteractive(session.id, STATE_TEXTS[FSMState.NC_RI_MENU]);
+      return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
     }
     
     if (raw === 'nc_estado') {
@@ -1090,21 +1942,26 @@ Entiendo que la factura deberia quedar asi:
     text: string,
     messageType?: string
   ): { replies: string[]; handledByInteractive?: boolean } {
-    // Si es adjunto (foto/video/documento) -> responder guiando SIEMPRE
-    if (messageType === 'image' || messageType === 'video' || messageType === 'document') {
-      return { replies: ['Te leo 🙂 Cuando termines de enviar todo, escribí *LISTO*.\nSi preferís, escribí *HABLAR CON ALGUIEN*.'] };
+    // IMPORTANTE: Verificar LISTO PRIMERO (solo si NO es media) para evitar responder "Recibimos archivo" cuando es texto
+    // Si es LISTO (y es texto, no media) -> derivar a Elina
+    if (isListoCommand(text) && messageType !== 'image' && messageType !== 'video' && messageType !== 'document' && messageType !== 'audio' && messageType !== 'file') {
+      logger.info('listo_processed', {
+        stateKey: session.state,
+        textPreview: text.substring(0, 20)
+      });
+      session.state = FSMState.FINALIZA;
+      return { replies: [getFraseDerivacion('Elina Maidana'), getCierreAleatorio()] };
+    }
+    
+    // Si es adjunto (foto/video/documento/audio/file) -> responder guiando SIEMPRE
+    if (messageType === 'image' || messageType === 'video' || messageType === 'document' || messageType === 'audio' || messageType === 'file') {
+      return { replies: ['Perfecto 👍\nRecibimos el archivo que enviaste.\n\nSi aún tenés más información para adjuntar, podés hacerlo ahora.\n\nCuando finalices, escribí la palabra *LISTO* para continuar.'] };
     }
     
     // Si es HABLAR CON ALGUIEN -> derivar a Iván
-    if (isHablarConAlguienCommand(text)) {
+    if (isHandoffToHuman(text)) {
       session.state = FSMState.FINALIZA;
       return { replies: [getFraseDerivacion('Iván Pos'), getCierreAleatorio()] };
-    }
-    
-    // Si es LISTO -> derivar a Elina
-    if (isListoCommand(text)) {
-      session.state = FSMState.FINALIZA;
-      return { replies: [getFraseDerivacion('Elina Maidana'), getCierreAleatorio()] };
     }
     
     // Cualquier otro texto: mensaje guiado sin derivar
@@ -1139,19 +1996,13 @@ Entiendo que la factura deberia quedar asi:
     text: string,
     messageType?: string
   ): { replies: string[]; handledByInteractive?: boolean } {
-    // Si es adjunto (foto/video/documento) -> responder guiando SIEMPRE
-    if (messageType === 'image' || messageType === 'video' || messageType === 'document') {
-      return { replies: ['Te leo 🙂 Cuando termines de enviar todo, escribí *LISTO*.\nSi preferís, escribí *HABLAR CON ALGUIEN*.'] };
-    }
-    
-    // Si es HABLAR CON ALGUIEN -> derivar a Iván
-    if (isHablarConAlguienCommand(text)) {
-      session.state = FSMState.FINALIZA;
-      return { replies: [getFraseDerivacion('Iván Pos'), getCierreAleatorio()] };
-    }
-    
-    // Si es LISTO -> derivar a Elina
-    if (isListoCommand(text)) {
+    // IMPORTANTE: Verificar LISTO PRIMERO (solo si NO es media) para evitar responder "Recibimos archivo" cuando es texto
+    // Si es LISTO (y es texto, no media) -> derivar a Elina
+    if (isListoCommand(text) && messageType !== 'image' && messageType !== 'video' && messageType !== 'document' && messageType !== 'audio' && messageType !== 'file') {
+      logger.info('listo_processed', {
+        stateKey: session.state,
+        textPreview: text.substring(0, 20)
+      });
       session.state = FSMState.FINALIZA;
       return { replies: [getFraseDerivacion('Elina Maidana'), getCierreAleatorio()] };
     }
@@ -1160,6 +2011,29 @@ Entiendo que la factura deberia quedar asi:
     return { 
       replies: ['Te leo 🙂 Cuando termines de enviar todo, escribí *LISTO*. Si preferís, escribí *HABLAR CON ALGUIEN*.'] 
     };
+  }
+
+  private async handleNCRIMenu(
+    session: Session,
+    raw: string,
+    conversationId: string | null,
+    inboundMessageId?: string
+  ): Promise<{ replies: string[]; handledByInteractive?: boolean }> {
+    if (raw === 'ri_agendar_si') {
+      session.state = FSMState.FINALIZA;
+      return { replies: [STATE_TEXTS[FSMState.CLIENTE_REUNION], getCierreAleatorio()] };
+    }
+    
+    if (raw === 'ri_agendar_no') {
+      session.state = FSMState.NOCLIENTE_MENU;
+      session.data.lastMenuState = 'NOCLIENTE_MENU';
+      const menuPayload = buildNoClienteMenuInteractive(session.id);
+      return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
+    }
+
+    // Si no es una opción válida, mostrar menú RI con texto
+    const menuPayload = buildNCRIMenuInteractive(session.id, STATE_TEXTS[FSMState.NC_RI_MENU]);
+    return await this.enqueueInteractiveMenu(session.id, menuPayload, conversationId, inboundMessageId);
   }
 
   private async handleNCEstadoConsulta(

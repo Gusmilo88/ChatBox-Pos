@@ -56,6 +56,19 @@ interface MetaWebhookEntry {
         text?: {
           body: string
         }
+        image?: {
+          id?: string
+          mime_type?: string
+        }
+        document?: {
+          id?: string
+          mime_type?: string
+          filename?: string
+        }
+        video?: {
+          id?: string
+          mime_type?: string
+        }
         interactive?: {
           type: 'list_reply' | 'button_reply'
           list_reply?: {
@@ -244,6 +257,51 @@ export async function handleWebhookMessage(req: Request, res: Response): Promise
                     .catch((error) => {
                       logger.error('whatsapp_audio_process_error', {
                         error: error instanceof Error ? error.message : 'Unknown error',
+                        from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                        messageId: message.id
+                      })
+                    })
+                  
+                  processedMessages++
+                  continue
+                }
+                
+                // MANEJO DE IMÁGENES, DOCUMENTOS Y VIDEOS
+                if (message.type === 'image' || message.type === 'document' || message.type === 'video') {
+                  const from = message.from
+                  const normalizedFrom = from.startsWith('+') ? from : `+${from}`
+                  
+                  // Extraer mediaId y mimeType si están disponibles
+                  const mediaId = message.image?.id || message.document?.id || message.video?.id || undefined
+                  const mimeType = message.image?.mime_type || message.document?.mime_type || message.video?.mime_type || undefined
+                  
+                  logger.info('whatsapp_media_received', {
+                    type: message.type,
+                    messageId: message.id,
+                    from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                    hasMediaId: !!mediaId,
+                    mimeType
+                  })
+                  
+                  // Procesar media: pasar por el mismo pipeline que texto (FSM responderá según estado)
+                  simulateIncoming({
+                    phone: normalizedFrom,
+                    text: '', // Texto vacío, el FSM detectará el messageType
+                    via: 'whatsapp',
+                    messageType: message.type
+                  })
+                    .then(async (result) => {
+                      logger.info('whatsapp_media_processed', {
+                        type: message.type,
+                        from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
+                        messageId: message.id,
+                        conversationId: result.conversationId
+                      })
+                    })
+                    .catch((error) => {
+                      logger.error('whatsapp_media_process_error', {
+                        error: error instanceof Error ? error.message : 'Unknown error',
+                        type: message.type,
                         from: normalizedFrom.replace(/\d(?=\d{4})/g, '*'),
                         messageId: message.id
                       })

@@ -18,6 +18,7 @@ export interface SessionData {
   _inboundMessageId?: string; // ID del mensaje entrante para idempotencia de menús
   _messageType?: string; // Tipo de mensaje (audio, image, document, etc.)
   lastMenuState?: string; // Último estado de menú mostrado (para audio)
+  hablarVolverState?: string; // Estado al que volver desde "Hablar con alguien" (Volver)
   // Factura electrónica
   factura_raw_messages?: string[]; // Mensajes acumulados para parsear factura
   factura_fields?: {
@@ -29,6 +30,18 @@ export interface SessionData {
   };
   factura_editing_field?: string; // Campo que se está editando actualmente
   factura_clean_text?: string; // Texto limpio para envío interno a Belén
+  pendingHonorariosMonto?: boolean; // Flag para responder monto después de validar CUIT
+  // Consulta libre (RI y Otro tipo de cliente)
+  consulta_libre_text?: string; // Texto acumulado de la consulta (string con saltos)
+  consulta_libre_textCount?: number; // Contador de mensajes de texto enviados
+  consulta_libre_media?: Array<{
+    type: string; // 'audio' | 'voice' | 'image' | 'document' | 'video' | 'file'
+    mediaId?: string; // ID del media en WhatsApp
+    mimeType?: string; // MIME type si está disponible
+    messageId?: string; // ID del mensaje
+    ts: Date; // Timestamp de recepción
+  }>;
+  consultaLibreLastAckAtByState?: { [stateKey: string]: number }; // Timestamps en ms del último ACK por estado (para throttling)
 }
 
 export interface Session {

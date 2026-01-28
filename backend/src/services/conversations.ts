@@ -473,12 +473,17 @@ export async function simulateIncoming(request: IncomingMessageRequest): Promise
 
     // Crear mensaje
     const messageId = uuidv4()
-    const messageData = {
+    const messageData: any = {
       ts: now,
       from: 'usuario' as const,
       text: sanitizedText,
       via,
       aiSuggested: false
+    }
+    
+    // Agregar messageType si está disponible (para tracking de media)
+    if (messageType) {
+      messageData.messageType = messageType
     }
 
     await collections.messages(conversationId).doc(messageId).set(messageData)
@@ -488,7 +493,8 @@ export async function simulateIncoming(request: IncomingMessageRequest): Promise
       messageId,
       phone: maskPII(normalizedPhone),
       textLength: sanitizedText.length,
-      via
+      via,
+      messageType: messageType || 'text'
     })
 
     // FSM MÍNIMA: Procesar directamente con FSM sin lógica adicional
@@ -1047,6 +1053,78 @@ export async function sendInternalToBelen(text: string): Promise<void> {
   } catch (error) {
     const msg = (error instanceof Error) ? error.message : String(error);
     logger.error('error_sending_internal_to_belen', {
+      error: msg
+    });
+    // NO lanzar error: no debe romper el flujo principal
+  }
+}
+
+/**
+ * Envía un mensaje interno a Iván Pos
+ * Similar a sendInternalToBelen pero para Iván
+ */
+export async function sendInternalToIvan(text: string): Promise<void> {
+  const ivanPhone = process.env.IVAN_PHONE;
+  
+  if (!ivanPhone || !ivanPhone.trim()) {
+    logger.info('internal_to_ivan_skipped', {
+      reason: 'IVAN_PHONE not configured'
+    });
+    return;
+  }
+
+  try {
+    const normalizedIvanPhone = normalizePhone(ivanPhone.trim());
+    
+    // Buscar o crear conversación para Iván
+    const existingConversation = await collections.conversations()
+      .where('phone', '==', normalizedIvanPhone)
+      .limit(1)
+      .get();
+
+    let conversationId: string;
+    
+    if (existingConversation.empty) {
+      // Crear nueva conversación para Iván
+      conversationId = uuidv4();
+      const now = new Date();
+      await collections.conversations().doc(conversationId).set({
+        phone: normalizedIvanPhone,
+        name: 'Iván Pos',
+        isClient: false,
+        lastMessageAt: now,
+        unreadCount: 1,
+        needsReply: false,
+        createdAt: now,
+        updatedAt: now
+      });
+      
+      logger.info('ivan_conversation_created', {
+        conversationId,
+        phone: maskPII(normalizedIvanPhone)
+      });
+    } else {
+      conversationId = existingConversation.docs[0].id;
+      
+      // Actualizar contadores
+      await collections.conversations().doc(conversationId).update({
+        lastMessageAt: new Date(),
+        unreadCount: (existingConversation.docs[0].data().unreadCount || 0) + 1,
+        updatedAt: new Date()
+      });
+    }
+
+    // Encolar mensaje
+    await enqueueOutbox(conversationId, normalizedIvanPhone, text);
+    
+    logger.info('internal_to_ivan_sent', {
+      conversationId,
+      phone: maskPII(normalizedIvanPhone),
+      textLength: text.length
+    });
+  } catch (error) {
+    const msg = (error instanceof Error) ? error.message : String(error);
+    logger.error('error_sending_internal_to_ivan', {
       error: msg
     });
     // NO lanzar error: no debe romper el flujo principal

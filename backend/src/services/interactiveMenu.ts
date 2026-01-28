@@ -99,6 +99,50 @@ export function buildRootMenuInteractive(phone: string): InteractivePayload {
 }
 
 /**
+ * Construye el menú CLIENTE_TIPO_SELECTOR (filtro antes de pedir CUIT)
+ */
+export function buildClienteTipoSelectorMenuInteractive(phone: string, bodyText: string): InteractivePayload {
+  const payload: InteractivePayload = {
+    messaging_product: 'whatsapp',
+    to: phone.startsWith('+') ? phone : `+${phone}`,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: {
+        text: bodyText
+      },
+      action: {
+        button: 'Elegir opción',
+        sections: [
+          {
+            rows: [
+              {
+                id: 'cli_tipo_monotributo',
+                title: 'Monotributista',
+                description: ''
+              },
+              {
+                id: 'cli_tipo_ri',
+                title: 'Responsable Inscripto',
+                description: 'Sociedades'
+              },
+              {
+                id: 'cli_tipo_otro',
+                title: 'Otro tipo de cliente',
+                description: ''
+              }
+            ]
+          }
+        ]
+      }
+    }
+  };
+  
+  validateRowTitles(payload, 'buildClienteTipoSelectorMenuInteractive');
+  return payload;
+}
+
+/**
  * Construye el menú CLIENTE_MENU con saludo personalizado
  */
 export function buildClienteMenuInteractive(phone: string, nombreCliente?: string | null): InteractivePayload {
@@ -143,7 +187,7 @@ export function buildClienteMenuInteractive(phone: string, nombreCliente?: strin
               {
                 id: 'cli_vep_qr_deuda',
                 title: 'VEP/QR deuda',
-                description: 'Monotributo / IIBB'
+                description: 'Monotributo / Ingresos Brutos'
               },
               {
                 id: 'cli_reunion',
@@ -334,6 +378,45 @@ export function buildNCPlanMenuInteractive(phone: string, bodyText: string): Int
   };
   
   validateRowTitles(payload, 'buildNCPlanMenuInteractive');
+  return payload;
+}
+
+/**
+ * Construye el menú NC_RI_MENU (2 opciones) con texto del plan RI en body
+ */
+export function buildNCRIMenuInteractive(phone: string, bodyText: string): InteractivePayload {
+  const payload: InteractivePayload = {
+    messaging_product: 'whatsapp',
+    to: phone.startsWith('+') ? phone : `+${phone}`,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: {
+        text: bodyText
+      },
+      action: {
+        button: 'Ver opciones',
+        sections: [
+          {
+            rows: [
+              {
+                id: 'ri_agendar_si',
+                title: 'Sí, agendar',
+                description: ''
+              },
+              {
+                id: 'ri_agendar_no',
+                title: 'No, volver',
+                description: ''
+              }
+            ]
+          }
+        ]
+      }
+    }
+  };
+  
+  validateRowTitles(payload, 'buildNCRIMenuInteractive');
   return payload;
 }
 

@@ -4,6 +4,7 @@ exports.STATE_TEXTS = exports.FSMState = void 0;
 var FSMState;
 (function (FSMState) {
     FSMState["ROOT"] = "ROOT";
+    FSMState["CLIENTE_TIPO_SELECTOR"] = "CLIENTE_TIPO_SELECTOR";
     FSMState["CLIENTE_PEDIR_CUIT"] = "CLIENTE_PEDIR_CUIT";
     FSMState["CLIENTE_MENU"] = "CLIENTE_MENU";
     FSMState["CLIENTE_ESTADO_GENERAL"] = "CLIENTE_ESTADO_GENERAL";
@@ -13,11 +14,14 @@ var FSMState;
     FSMState["CLIENTE_VENTAS_INFO"] = "CLIENTE_VENTAS_INFO";
     FSMState["CLIENTE_REUNION"] = "CLIENTE_REUNION";
     FSMState["CLIENTE_HABLAR_CON_ALGUIEN"] = "CLIENTE_HABLAR_CON_ALGUIEN";
+    FSMState["CLIENTE_RI_CONSULTA_LIBRE"] = "CLIENTE_RI_CONSULTA_LIBRE";
+    FSMState["CLIENTE_OTRO_CONSULTA_LIBRE"] = "CLIENTE_OTRO_CONSULTA_LIBRE";
     FSMState["NOCLIENTE_MENU"] = "NOCLIENTE_MENU";
     FSMState["NC_ALTA_MENU"] = "NC_ALTA_MENU";
     FSMState["NC_ALTA_REQUISITOS"] = "NC_ALTA_REQUISITOS";
     FSMState["NC_PLAN_MENU"] = "NC_PLAN_MENU";
     FSMState["NC_PLAN_REQUISITOS"] = "NC_PLAN_REQUISITOS";
+    FSMState["NC_RI_MENU"] = "NC_RI_MENU";
     FSMState["NC_ESTADO_CONSULTA"] = "NC_ESTADO_CONSULTA";
     FSMState["NC_DERIVA_IVAN_TEXTO"] = "NC_DERIVA_IVAN_TEXTO";
     FSMState["DERIVA_IVAN"] = "DERIVA_IVAN";
@@ -89,6 +93,20 @@ Elegí día y horario en nuestra agenda online:
 👉 https://calendly.com/posyasociados/sincosto
 
 Gracias!`,
+    [FSMState.CLIENTE_TIPO_SELECTOR]: '¿Qué tipo de cliente sos?',
+    [FSMState.CLIENTE_RI_CONSULTA_LIBRE]: `Perfecto 👍
+
+En tu caso, tu consulta tiene atención *prioritaria*.
+
+Por favor, escribí o grabá tu consulta con el mayor detalle posible.
+Cuando termines, escribí LISTO y se la enviaremos directamente a Iván para que pueda responderte.
+
+Gracias 🙏`,
+    [FSMState.CLIENTE_OTRO_CONSULTA_LIBRE]: `Perfecto 👍
+
+Por favor, escribí o grabá tu consulta con la mayor claridad posible (podés enviar texto o audio).
+
+Cuando finalices, escribí la palabra LISTO y la información será enviada a nuestro equipo para su revisión y respuesta.`,
     [FSMState.NC_ALTA_REQUISITOS]: `Perfecto 🙌.
 Lo que necesito para iniciar tu alta es:
 
@@ -103,21 +121,22 @@ Lo que necesito para iniciar tu alta es:
 
 📌 Cuando termines de enviar todo, escribí *LISTO*.
 Si preferís, escribí *HABLAR CON ALGUIEN*.`,
-    [FSMState.NC_PLAN_MENU]: `Nuestro Plan para Monotributistas y emprendedores cuesta $29.500 mensuales
-e incluye:
+    [FSMState.NC_PLAN_MENU]: `Nuestro Plan para Monotributistas y emprendedores cuesta $34.900 mensuales e incluye:
 
-✅ Reporte inicial para detectar desvíos e intimaciones
-✅ Liquidación mensual de Ingresos Brutos
+✅ Alta en Monotributo e Ingresos Brutos
+✅ Liquidación mensual
 ✅ Emisión de facturas/boletas
 ✅ Control de pagos y categoría
-✅ Acceso a nuestra app exclusiva 📲 con tu posición impositiva
-   actualizada cada semana.
+✅ Acceso a nuestra app exclusiva 📲 con tu posición impositiva actualizada cada semana.
 
 Además:
+📆 Reporte inicial en el día
 💻 Videollamada sin cargo
 🤝 Acompañamiento permanente.
 
-👉 ¿Te digo lo que necesito para empezar?`,
+👉 Si solo querés el alta (sin plan mensual) también lo hacemos y después podés seguir gestionándote vos.
+
+Te digo lo que necesito para empezar?`,
     [FSMState.NC_PLAN_REQUISITOS]: `Perfecto 🙌.
 Lo que necesito para tu reporte inicial (sin cargo) es:
 
@@ -126,6 +145,23 @@ Lo que necesito para tu reporte inicial (sin cargo) es:
 
 📌 Cuando termines de enviar todo, escribí *LISTO*.
 Si preferís, escribí *HABLAR CON ALGUIEN*.`,
+    [FSMState.NC_RI_MENU]: `Plan Responsable Inscripto
+incluye:
+
+✅ Facturación electrónica
+✅ Control de pagos y vencimientos
+✅ Declaraciones de IVA e Ingresos Brutos
+✅ Asesoramiento permanente
+✅ Representación ante ARCA
+✅ Planeamiento impositivo
+
+💰 Valor mensual: $110.000 finales
+
+(Consultar adicional por sueldos y cargas sociales)
+
+Es un servicio pensado para que te olvides de los problemas con ARCA y tengas todo al día 📊
+
+¿Querés que te mande el link para agendar una reunión? 🤝`,
     [FSMState.NC_ESTADO_CONSULTA]: `📌 Estado de mi consulta
 
 Para poder ubicar tu consulta, por favor escribí tu Nombre y Apellido completos ✍️.
@@ -140,10 +176,17 @@ en la respuesta.`,
     [FSMState.DERIVA_IVAN]: 'Perfecto. Te derivo con el contador Iván Pos.',
     [FSMState.FINALIZA]: '',
     // Honorarios
-    HONORARIOS_RESPUESTA: `Para pagar tus honorarios ingresá a:
-https://app.posyasociados.com/login con tu CUIT.
+    HONORARIOS_RESPUESTA: `💳 Pago de honorarios
 
-Ahí podés pagar por Bio Libre ✅`,
+Para abonar tus honorarios, ingresá al siguiente link:
+👉 https://biolibre.ar/posyasociados
+
+Allí podrás cargar el monto informado y realizar el pago.
+
+❓ Si no sabés cuál es el monto a abonar, respondé a este mensaje escribiendo MONTO y te lo informamos.`,
+    HONORARIOS_PEDIR_CUIT: `Para informarte el monto necesito verificar que sos cliente 🙂.
+Ingresá tu CUIT sin puntos ni guiones 👇`,
+    HONORARIOS_MONTO_NO_DISPONIBLE: `No tenemos un monto registrado en este momento. Si necesitás ayuda, escribí HABLAR CON ALGUIEN.`,
     // Cierre de conversación (pool de 9 variantes)
     CIERRE_CONVERSACION_POOL: [
         'Genial 🙂 Si necesitás algo más, escribí *hola* y te muestro el menú.',

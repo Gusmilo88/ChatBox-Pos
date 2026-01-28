@@ -53,16 +53,35 @@ export async function generateBotReply(
   
   try {
     // MANEJO DE AUDIOS (OBLIGATORIO) - ANTES DE CUALQUIER PROCESAMIENTO
+    // EXCEPCIÓN: Permitir audio en CLIENTE_RI_CONSULTA_LIBRE
     if (messageType === 'audio' || messageType === 'voice') {
       logger.info('audio_received', {
         conversationId,
         phone: maskPhone(normalizedPhone)
       });
       
-      // Obtener FSM para determinar contexto y mostrar menú correcto
+      // Obtener FSM para determinar contexto
       const fsm = getFSMManager();
       const session = (fsm as any).getOrCreateSession(normalizedPhone);
       
+      // EXCEPCIÓN: Si está en estados de consulta libre, permitir audio y pasar a FSM
+      if (session.state === 'CLIENTE_RI_CONSULTA_LIBRE' || session.state === 'CLIENTE_OTRO_CONSULTA_LIBRE') {
+        // Pasar el audio a la FSM para que lo procese el handler específico
+        const fsmResult = await fsm.processMessage(normalizedPhone, text, undefined, conversationId, messageType);
+        logger.info('bot_reply_generated', {
+          conversationId,
+          phone: maskPhone(normalizedPhone),
+          repliesCount: fsmResult.replies.length,
+          handledByInteractive: fsmResult.handledByInteractive
+        });
+        return {
+          replies: fsmResult.replies,
+          via: 'fsm',
+          handledByInteractive: fsmResult.handledByInteractive
+        };
+      }
+      
+      // Para otros estados: responder que no puede escuchar audios
       // Determinar qué menú mostrar según lastMenuState
       let menuPayload;
       if (session.data.lastMenuState === 'CLIENTE_MENU') {
